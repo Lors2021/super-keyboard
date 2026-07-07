@@ -18,22 +18,23 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Принудительно генерируем враппер версии 8.9
+    # Настраиваем сборщик в правильной папке
     - name: Setup Gradle Wrapper
       run: gradle wrapper --gradle-version 8.9
-      working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
+      working-directory: './secret-app'
 
-    # Перед сборкой принудительно обновляем свойства враппера внутри папки
     - name: Update distribution URL
       run: sed -i 's/gradle-8.5-bin.zip/gradle-8.9-bin.zip/g' gradle/wrapper/gradle-wrapper.properties || true
-      working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
+      working-directory: './secret-app'
 
+    # Собираем приложение
     - name: Build with Gradle
       run: ./gradlew assembleDebug
-      working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
+      working-directory: './secret-app'
 
+    # Сохраняем готовый APK
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: keyboard-app
-        path: СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ/app/build/outputs/apk/debug/app-debug.apk
+        path: secret-app/app/build/outputs/apk/debug/app-debug.apk
