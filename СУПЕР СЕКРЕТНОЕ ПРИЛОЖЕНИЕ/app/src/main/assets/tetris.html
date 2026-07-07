@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body { background: #000; color: #fff; font-family: sans-serif; text-align: center; margin: 0; padding: 0; overflow: hidden; }
+        canvas { background: #111; display: block; margin: 5px auto; border: 2px solid #333; }
+        .controls { display: flex; justify-content: center; gap: 10px; margin-top: 2px; }
+        button { background: #333; color: white; border: none; padding: 5px 15px; font-size: 14px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <canvas id="tetris" width="120" height="200"></canvas>
+    <div class="controls">
+        <button onclick="move(-1)">◀</button>
+        <button onclick="drop()">▼</button>
+        <button onclick="rotate()">↻</button>
+        <button onclick="move(1)">▶</button>
+    </div>
+    <script>
+        const canvas = document.getElementById('tetris');
+        const context = canvas.getContext('2d');
+        context.scale(10, 10);
+        const arena = Array.from({length: 20}, () => Array(12).fill(0));
+        const player = { pos: {x: 5, y: 0}, matrix: [[1,1,1],[0,1,0]] };
+        function drawMatrix(matrix, offset) {
+            matrix.forEach((row, y) => { row.forEach((value, x) => { if (value !== 0) { context.fillStyle = 'red'; context.fillRect(x + offset.x, y + offset.y, 1, 1); } }); });
+        }
+        function draw() {
+            context.fillStyle = '#111'; context.fillRect(0, 0, canvas.width, canvas.height);
+            drawMatrix(arena, {x: 0, y: 0}); drawMatrix(player.matrix, player.pos);
+        }
+        function move(dir) { player.pos.x += dir; if(collide()) player.pos.x -= dir; draw(); }
+        function drop() { player.pos.y++; if(collide()) { player.pos.y--; merge(); player.pos.y = 0; player.pos.x = 5; } draw(); }
+        function rotate() { 
+            const m = player.matrix; player.matrix = m[0].map((val, index) => m.map(row => row[index]).reverse());
+            if (collide()) player.matrix = m; draw();
+        }
+        function collide() {
+            const [m, o] = [player.matrix, player.pos];
+            for (let y = 0; y < m.length; ++y) { for (let x = 0; x < m[y].length; ++x) { if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true; } }
+            return false;
+        }
+        function merge() { player.matrix.forEach((row, y) => { row.forEach((value, x) => { if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value; }); }); }
+        setInterval(drop, 1000); draw();
+    </script>
+</body>
+</html>
