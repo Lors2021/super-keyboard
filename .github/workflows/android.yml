@@ -17,17 +17,15 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Указываем роботу правильную папку для создания сборщика
+    # Меняем версию с 8.5 на 8.10 для совместимости
     - name: Setup Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.5
+      run: gradle wrapper --gradle-version 8.10
       working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
 
-    # Указываем роботу ту же папку для запуска самой сборки
     - name: Build with Gradle
       run: ./gradlew assembleDebug
       working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
 
-    # Готовый APK забираем из папки приложения
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
