@@ -16,13 +16,20 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
+    # Указываем роботу правильную папку для создания сборщика
+    - name: Setup Gradle Wrapper
+      run: gradle wrapper --gradle-version 8.5
+      working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
+
+    # Указываем роботу ту же папку для запуска самой сборки
     - name: Build with Gradle
-      run: ./gradlew assembleDebug || gradle assembleDebug
+      run: ./gradlew assembleDebug
+      working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
 
+    # Готовый APK забираем из папки приложения
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: keyboard-app
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ/app/build/outputs/apk/debug/app-debug.apk
