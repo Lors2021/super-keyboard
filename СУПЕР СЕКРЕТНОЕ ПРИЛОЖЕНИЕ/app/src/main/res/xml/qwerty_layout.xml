@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Keyboard xmlns:android="http://schemas.android.com/apk/res/android"
     android:keyWidth="10%p"
-    android:keyHeight="50dp"
-    android:horizontalGap="0px"
-    android:verticalGap="0px">
+    android:keyHeight="60dp"
+    android:horizontalGap="1px"
+    android:verticalGap="1px">
+    
     <Row>
         <Key android:codes="113" android:keyLabel="q"/>
         <Key android:codes="119" android:keyLabel="w"/>
@@ -16,6 +17,7 @@
         <Key android:codes="111" android:keyLabel="o"/>
         <Key android:codes="112" android:keyLabel="p"/>
     </Row>
+    
     <Row>
         <Key android:codes="-5" android:keyLabel="DELETE" android:keyWidth="100%p" android:isRepeatable="true"/>
     </Row>
