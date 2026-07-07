@@ -1,7 +1,6 @@
 package com.example.customkeyboard;
 
 import android.inputmethodservice.InputMethodService;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
@@ -10,156 +9,105 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.TextView;
-import android.widget.GridLayout;
 import android.widget.LinearLayout;
+import android.graphics.Color;
 
 public class MyCustomKeyboard extends InputMethodService {
 
     private FrameLayout container;
     private WebView webView;
-    private int clickerScore = 0;
 
     @Override
     public View onCreateInputView() {
-        LayoutInflater inflater = getLayoutInflater();
-        int layoutId = getResources().getIdentifier("keyboard_view", "layout", getPackageName());
-        View layout = inflater.inflate(layoutId, null);
+        // Создаем главный контейнер программно
+        LinearLayout mainLayout = new LinearLayout(this);
+        mainLayout.setOrientation(LinearLayout.VERTICAL);
+        mainLayout.setBackgroundColor(Color.parseColor("#1E1E1E"));
+        mainLayout.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
 
-        // Принудительно заставляем корневой контейнер занять всю ширину и высоту
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        layout.setLayoutParams(params);
-
-        container = layout.findViewById(getResources().getIdentifier("content_container", "id", getPackageName()));
-        webView = layout.findViewById(getResources().getIdentifier("keyboard_webview", "id", getPackageName()));
+        // Панель меню (кнопки)
+        LinearLayout menuLayout = new LinearLayout(this);
+        menuLayout.setOrientation(LinearLayout.HORIZONTAL);
+        menuLayout.setBackgroundColor(Color.parseColor("#111111"));
         
-        if (webView != null) {
-            WebSettings settings = webView.getSettings();
-            settings.setJavaScriptEnabled(true);
-            settings.setDomStorageEnabled(true);
-            webView.setWebViewClient(new WebViewClient());
+        addButton(menuLayout, "YouTube", v -> openUrl("https://m.youtube.com"));
+        addButton(menuLayout, "Тетрис", v -> openUrl("https://html5game.com")); // Временная замена локального файла для теста
+        addButton(menuLayout, "Змейка", v -> openUrl("https://google.com/search?q=snake+game"));
+
+        mainLayout.addView(menuLayout, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 120 // Высота меню в пикселях
+        ));
+
+        // Игровой контейнер и WebView
+        container = new FrameLayout(this);
+        container.setBackgroundColor(Color.BLACK);
+        
+        webView = new WebView(this);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        webView.setWebViewClient(new WebViewClient());
+        webView.setVisibility(View.GONE);
+        container.addView(webView);
+
+        mainLayout.addView(container, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 400 // Высота игрового поля
+        ));
+
+        // Ряд клавиш клавиатуры
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        
+        String[] keys = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"};
+        for (String key : keys) {
+            addButton(row1, key.toUpperCase(), v -> typeText(key));
         }
+        mainLayout.addView(row1, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 140
+        ));
 
-        // Кнопки букв
-        setupKey(layout, "key_q", "q");
-        setupKey(layout, "key_w", "w");
-        setupKey(layout, "key_e", "e");
-        setupKey(layout, "key_r", "r");
-        setupKey(layout, "key_t", "t");
-        setupKey(layout, "key_y", "y");
-        setupKey(layout, "key_u", "u");
-        setupKey(layout, "key_i", "i");
-        setupKey(layout, "key_o", "o");
-        setupKey(layout, "key_p", "p");
-        setupKey(layout, "key_space", " ");
+        // Ряд управления (Пробел и Стереть)
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        
+        addButton(row2, "ПРОБЕЛ", v -> typeText(" "));
+        addButton(row2, "⌫ СТЕРЕТЬ", v -> {
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) ic.deleteSurroundingText(1, 0);
+        });
+        
+        mainLayout.addView(row2, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 140
+        ));
 
-        int btnDeleteId = getResources().getIdentifier("key_delete", "id", getPackageName());
-        View btnDelete = layout.findViewById(btnDeleteId);
-        if (btnDelete != null) {
-            btnDelete.setOnClickListener(v -> {
-                InputConnection ic = getCurrentInputConnection();
-                if (ic != null) ic.deleteSurroundingText(1, 0);
-            });
-        }
-
-        setupMenuButton(layout, "btn_youtube", "https://m.youtube.com");
-        setupMenuButton(layout, "btn_tetris", "file:///android_asset/tetris.html");
-        setupMenuButton(layout, "btn_snake", "file:///android_asset/snake.html");
-
-        int btnClickerId = getResources().getIdentifier("btn_clicker", "id", getPackageName());
-        View btnClicker = layout.findViewById(btnClickerId);
-        if (btnClicker != null) btnClicker.setOnClickListener(v -> openClicker());
-
-        int btnTicTacId = getResources().getIdentifier("btn_tic_tac", "id", getPackageName());
-        View btnTicTac = layout.findViewById(btnTicTacId);
-        if (btnTicTac != null) btnTicTac.setOnClickListener(v -> openTicTacToe());
-
-        return layout;
+        return mainLayout;
     }
 
-    private void setupKey(View layout, String idName, final String textToType) {
-        int id = getResources().getIdentifier(idName, "id", getPackageName());
-        View key = layout.findViewById(id);
-        if (key != null) {
-            key.setOnClickListener(v -> {
-                InputConnection ic = getCurrentInputConnection();
-                if (ic != null) ic.commitText(textToType, 1);
-            });
-        }
+    private void addButton(LinearLayout parent, String text, View.OnClickListener listener) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextColor(Color.WHITE);
+        btn.setOnClickListener(listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f
+        );
+        params.setMargins(2, 2, 2, 2);
+        parent.addView(btn, params);
     }
 
-    private void setupMenuButton(View layout, String idName, String url) {
-        int id = getResources().getIdentifier(idName, "id", getPackageName());
-        View button = layout.findViewById(id);
-        if (button != null) {
-            button.setOnClickListener(v -> {
-                showWebView();
-                webView.loadUrl(url);
-            });
-        }
-    }
-
-    private void showWebView() {
-        if (container != null && webView != null) {
-            container.removeAllViews();
+    private void openUrl(String url) {
+        if (webView != null && container != null) {
             webView.setVisibility(View.VISIBLE);
-            container.addView(webView);
+            webView.loadUrl(url);
         }
     }
 
-    private void openClicker() {
-        if (container == null) return;
-        webView.setVisibility(View.GONE);
-        container.removeAllViews();
-        LayoutInflater inflater = getLayoutInflater();
-        View view = inflater.inflate(getResources().getIdentifier("game_clicker", "layout", getPackageName()), null);
-        TextView tvScore = view.findViewById(getResources().getIdentifier("tv_score", "id", getPackageName()));
-        Button btnClick = view.findViewById(getResources().getIdentifier("btn_click", "id", getPackageName()));
-        clickerScore = 0;
-        if (tvScore != null) tvScore.setText("Монеты: " + clickerScore);
-        if (btnClick != null) {
-            btnClick.setOnClickListener(v -> {
-                clickerScore++;
-                if (tvScore != null) tvScore.setText("Монеты: " + clickerScore);
-            });
+    private void typeText(String text) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null) {
+            ic.commitText(text, 1);
         }
-        container.addView(view);
-    }
-
-    private boolean isXTurn = true;
-    private String[] board = new String[9];
-
-    private void openTicTacToe() {
-        if (container == null) return;
-        webView.setVisibility(View.GONE);
-        container.removeAllViews();
-        isXTurn = true;
-        for(int i=0; i<9; i++) board[i] = "";
-        LayoutInflater inflater = getLayoutInflater();
-        View view = inflater.inflate(getResources().getIdentifier("game_tictactoe", "layout", getPackageName()), null);
-        GridLayout gridLayout = view.findViewById(getResources().getIdentifier("grid_board", "id", getPackageName()));
-        if (gridLayout != null) {
-            for (int i = 0; i < 9; i++) {
-                final int index = i;
-                Button button = (Button) gridLayout.getChildAt(i);
-                if (button != null) {
-                    button.setText("");
-                    button.setOnClickListener(v -> {
-                        if (button.getText().toString().isEmpty() && board[index].isEmpty()) {
-                            button.setText(isXTurn ? "X" : "O");
-                            board[index] = button.getText().toString();
-                            isXTurn = !isXTurn;
-                        }
-                    });
-                }
-            }
-        }
-        int btnResetId = getResources().getIdentifier("btn_reset_tic", "id", getPackageName());
-        View btnReset = view.findViewById(btnResetId);
-        if (btnReset != null) btnReset.setOnClickListener(v -> openTicTacToe());
-        container.addView(view);
     }
 }
