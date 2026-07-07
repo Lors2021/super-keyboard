@@ -3,6 +3,7 @@ package com.example.customkeyboard;
 import android.inputmethodservice.InputMethodService;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -11,6 +12,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.GridLayout;
+import android.widget.LinearLayout;
 
 public class MyCustomKeyboard extends InputMethodService {
 
@@ -20,60 +22,62 @@ public class MyCustomKeyboard extends InputMethodService {
 
     @Override
     public View onCreateInputView() {
-        try {
-            LayoutInflater inflater = getLayoutInflater();
-            int layoutId = getResources().getIdentifier("keyboard_view", "layout", getPackageName());
-            View layout = inflater.inflate(layoutId, null);
+        LayoutInflater inflater = getLayoutInflater();
+        int layoutId = getResources().getIdentifier("keyboard_view", "layout", getPackageName());
+        View layout = inflater.inflate(layoutId, null);
 
-            container = layout.findViewById(getResources().getIdentifier("content_container", "id", getPackageName()));
-            webView = layout.findViewById(getResources().getIdentifier("keyboard_webview", "id", getPackageName()));
-            
+        // Принудительно заставляем корневой контейнер занять всю ширину и высоту
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        layout.setLayoutParams(params);
+
+        container = layout.findViewById(getResources().getIdentifier("content_container", "id", getPackageName()));
+        webView = layout.findViewById(getResources().getIdentifier("keyboard_webview", "id", getPackageName()));
+        
+        if (webView != null) {
             WebSettings settings = webView.getSettings();
             settings.setJavaScriptEnabled(true);
             settings.setDomStorageEnabled(true);
             webView.setWebViewClient(new WebViewClient());
-
-            // Подключаем буквы
-            setupKey(layout, "key_q", "q");
-            setupKey(layout, "key_w", "w");
-            setupKey(layout, "key_e", "e");
-            setupKey(layout, "key_r", "r");
-            setupKey(layout, "key_t", "t");
-            setupKey(layout, "key_y", "y");
-            setupKey(layout, "key_u", "u");
-            setupKey(layout, "key_i", "i");
-            setupKey(layout, "key_o", "o");
-            setupKey(layout, "key_p", "p");
-            setupKey(layout, "key_space", " ");
-
-            // Кнопка удаления знака (Backspace)
-            int btnDeleteId = getResources().getIdentifier("key_delete", "id", getPackageName());
-            View btnDelete = layout.findViewById(btnDeleteId);
-            if (btnDelete != null) {
-                btnDelete.setOnClickListener(v -> {
-                    InputConnection ic = getCurrentInputConnection();
-                    if (ic != null) ic.deleteSurroundingText(1, 0);
-                });
-            }
-
-            // Подключаем меню игр
-            setupMenuButton(layout, "btn_youtube", "https://m.youtube.com");
-            setupMenuButton(layout, "btn_tetris", "file:///android_asset/tetris.html");
-            setupMenuButton(layout, "btn_snake", "file:///android_asset/snake.html");
-
-            int btnClickerId = getResources().getIdentifier("btn_clicker", "id", getPackageName());
-            View btnClicker = layout.findViewById(btnClickerId);
-            if (btnClicker != null) btnClicker.setOnClickListener(v -> openClicker());
-
-            int btnTicTacId = getResources().getIdentifier("btn_tic_tac", "id", getPackageName());
-            View btnTicTac = layout.findViewById(btnTicTacId);
-            if (btnTicTac != null) btnTicTac.setOnClickListener(v -> openTicTacToe());
-
-            return layout;
-        } catch (Exception e) {
-            e.printStackTrace();
-            return new View(this);
         }
+
+        // Кнопки букв
+        setupKey(layout, "key_q", "q");
+        setupKey(layout, "key_w", "w");
+        setupKey(layout, "key_e", "e");
+        setupKey(layout, "key_r", "r");
+        setupKey(layout, "key_t", "t");
+        setupKey(layout, "key_y", "y");
+        setupKey(layout, "key_u", "u");
+        setupKey(layout, "key_i", "i");
+        setupKey(layout, "key_o", "o");
+        setupKey(layout, "key_p", "p");
+        setupKey(layout, "key_space", " ");
+
+        int btnDeleteId = getResources().getIdentifier("key_delete", "id", getPackageName());
+        View btnDelete = layout.findViewById(btnDeleteId);
+        if (btnDelete != null) {
+            btnDelete.setOnClickListener(v -> {
+                InputConnection ic = getCurrentInputConnection();
+                if (ic != null) ic.deleteSurroundingText(1, 0);
+            });
+        }
+
+        setupMenuButton(layout, "btn_youtube", "https://m.youtube.com");
+        setupMenuButton(layout, "btn_tetris", "file:///android_asset/tetris.html");
+        setupMenuButton(layout, "btn_snake", "file:///android_asset/snake.html");
+
+        int btnClickerId = getResources().getIdentifier("btn_clicker", "id", getPackageName());
+        View btnClicker = layout.findViewById(btnClickerId);
+        if (btnClicker != null) btnClicker.setOnClickListener(v -> openClicker());
+
+        int btnTicTacId = getResources().getIdentifier("btn_tic_tac", "id", getPackageName());
+        View btnTicTac = layout.findViewById(btnTicTacId);
+        if (btnTicTac != null) btnTicTac.setOnClickListener(v -> openTicTacToe());
+
+        return layout;
     }
 
     private void setupKey(View layout, String idName, final String textToType) {
