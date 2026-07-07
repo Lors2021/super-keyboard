@@ -17,9 +17,14 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # Меняем версию с 8.5 на 8.10 для совместимости
+    # Принудительно генерируем враппер версии 8.9
     - name: Setup Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.10
+      run: gradle wrapper --gradle-version 8.9
+      working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
+
+    # Перед сборкой принудительно обновляем свойства враппера внутри папки
+    - name: Update distribution URL
+      run: sed -i 's/gradle-8.5-bin.zip/gradle-8.9-bin.zip/g' gradle/wrapper/gradle-wrapper.properties || true
       working-directory: './СУПЕР СЕКРЕТНОЕ ПРИЛОЖЕНИЕ'
 
     - name: Build with Gradle
