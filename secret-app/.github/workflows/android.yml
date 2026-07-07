@@ -3,6 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,13 +17,22 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
+
+    # Переключаем пути на secret-app
+    - name: Setup Gradle Wrapper
+      run: gradle wrapper --gradle-version 8.9
+      working-directory: './secret-app'
+
+    - name: Update distribution URL
+      run: sed -i 's/gradle-8.5-bin.zip/gradle-8.9-bin.zip/g' gradle/wrapper/gradle-wrapper.properties || true
+      working-directory: './secret-app'
 
     - name: Build with Gradle
-      run: ./gradlew assembleDebug || gradle assembleDebug
+      run: ./gradlew assembleDebug
+      working-directory: './secret-app'
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: keyboard-app
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: secret-app/app/build/outputs/apk/debug/app-debug.apk
