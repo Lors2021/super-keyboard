@@ -3,18 +3,20 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <application android:allowBackup="true" android:label="Супер Клавиатура">
+    <application 
+        android:allowBackup="true" 
+        android:label="Супер Клавиатура">
         
         <service
             android:name=".MyCustomKeyboard"
-            android:label="Супер Клавиатура с YouTube"
+            android:label="Супер Клавиатура"
             android:permission="android.permission.BIND_INPUT_METHOD"
             android:exported="true">
             <meta-data
                 android:name="android.view.im"
                 android:resource="@xml/method" />
             <intent-filter>
-                <action android:name="view.inputmethod.InputMethod" />
+                <action android:name="android.view.InputMethod" />
             </intent-filter>
         </service>
 
