@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#222222">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="45dp"
+        android:orientation="horizontal"
+        android:background="#111111"
+        android:padding="4dp">
+        <Button android:id="@+id/btn_youtube" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="YouTube" android:textSize="9sp"/>
+        <Button android:id="@+id/btn_clicker" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Клик" android:textSize="9sp"/>
+        <Button android:id="@+id/btn_tic_tac" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Х/О" android:textSize="9sp"/>
+        <Button android:id="@+id/btn_tetris" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Тетрис" android:textSize="9sp"/>
+        <Button android:id="@+id/btn_snake" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Змейка" android:textSize="9sp"/>
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/content_container"
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:background="#000000">
+        <WebView android:id="@+id/keyboard_webview" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone" />
+    </FrameLayout>
+
+    <android.inputmethodservice.KeyboardView
+        android:id="@+id/keyboard_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+</LinearLayout>
