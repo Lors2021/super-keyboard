@@ -1,6 +1,5 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
 }
 
 android {
@@ -21,14 +20,8 @@ android {
         }
     }
 
-    // Указываем Java использовать версию 17
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
-    }
-
-    // Указываем Kotlin использовать версию 17
-    kotlinOptions {
-        jvmTarget = '17'
     }
 }
