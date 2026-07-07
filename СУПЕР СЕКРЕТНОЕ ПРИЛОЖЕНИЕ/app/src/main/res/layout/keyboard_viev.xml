@@ -21,13 +21,22 @@
     <FrameLayout
         android:id="@+id/content_container"
         android:layout_width="match_parent"
-        android:layout_height="220dp"
+        android:layout_height="200dp"
         android:background="#000000">
-        <WebView android:id="@+id/keyboard_webview" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone" />
+        <WebView 
+            android:id="@+id/keyboard_webview" 
+            android:layout_width="match_parent" 
+            android:layout_height="match_parent" 
+            android:visibility="gone" />
     </FrameLayout>
 
     <android.inputmethodservice.KeyboardView
         android:id="@+id/keyboard_view"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="250dp"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:background="#1A1A1A"
+        android:keyBackground="@android:drawable/btn_default"
+        android:keyTextColor="#FFFFFF" />
 </LinearLayout>
