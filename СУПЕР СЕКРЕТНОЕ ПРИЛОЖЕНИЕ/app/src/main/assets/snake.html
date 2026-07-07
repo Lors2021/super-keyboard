@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body { background: #000; text-align: center; margin: 0; padding: 0; overflow: hidden; }
+        canvas { background: #111; display: block; margin: 5px auto; border: 2px solid #333; }
+        .btn-grid { display: grid; grid-template-columns: repeat(3, 40px); gap: 5px; justify-content: center; }
+        button { background: #333; color: #fff; border: none; padding: 10px; font-size: 16px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <canvas id="stage" width="200" height="140"></canvas>
+    <div class="btn-grid">
+        <div></div><button onclick="changeDir(0,-1)">▲</button><div></div>
+        <button onclick="changeDir(-1,0)">◀</button><div></div><button onclick="changeDir(1,0)">▶</button>
+        <div></div><button onclick="changeDir(0,1)">▼</button><div></div>
+    </div>
+    <script>
+        const canvas = document.getElementById('stage');
+        const ctx = canvas.getContext('2d');
+        let snake = [{x:10, y:7}], apple = {x:5, y:5}, dx = 1, dy = 0, size = 10;
+        function game() {
+            let head = {x: snake[0].x + dx, y: snake[0].y + dy};
+            if(head.x<0 || head.x>=20 || head.y<0 || head.y>=14) head = {x: snake[0].x, y: snake[0].y};
+            snake.unshift(head);
+            if(head.x === apple.x && head.y === apple.y) {
+                apple = {x: Math.floor(Math.random()*20), y: Math.floor(Math.random()*14)};
+            } else { snake.pop(); }
+            ctx.fillStyle = '#111'; ctx.fillRect(0,0,200,140);
+            ctx.fillStyle = 'lime'; snake.forEach(p => ctx.fillRect(p.x*size, p.y*size, size-1, size-1));
+            ctx.fillStyle = 'red'; ctx.fillRect(apple.x*size, apple.y*size, size-1, size-1);
+        }
+        function changeDir(x,y) { dx = x; dy = y; }
+        setInterval(game, 150);
+    </script>
+</body>
+</html>
