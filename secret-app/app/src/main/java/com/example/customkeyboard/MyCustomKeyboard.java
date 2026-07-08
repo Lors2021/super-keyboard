@@ -125,5 +125,16 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     // --- ЛОГИКА КЛАВИАТУРЫ (ПЕРЕКЛЮЧАТЕЛЬ И БУКВЫ) ---
 
-    // (Сюда мы вставим обновленный метод buildKeyboard иaddKeyButton из предыдущего ответа)
+    // Оптимизированная раскладка (буквы распределены равномерно по 10-11 в ряд)
+        String[] row1Keys = isRussian ? 
+            new String[]{"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з"} : 
+            new String[]{"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"};
+
+        String[] row2Keys = isRussian ? 
+            new String[]{"ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", "э"} : 
+            new String[]{"a", "s", "d", "f", "g", "h", "j", "k", "l"};
+
+        String[] row3Keys = isRussian ? 
+            new String[]{"я", "ч", "с", "м", "и", "т", "ь", "б", "ю", "х", "ъ"} : 
+            new String[]{"z", "x", "c", "v", "b", "n", "m"};
 }
