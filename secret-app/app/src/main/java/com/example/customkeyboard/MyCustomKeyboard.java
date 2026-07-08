@@ -2,7 +2,6 @@ package com.example.customkeyboard;
 
 import android.inputmethodservice.InputMethodService;
 import android.inputmethodservice.KeyboardView;
-import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
@@ -12,7 +11,6 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
@@ -21,95 +19,104 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     private WebView webView;
     private FrameLayout keyboardContainer;
-    private FrameLayout gameContainer;
-    private LinearLayout keyboardLayout;
+    private LinearLayout mainKeyboardLayout;
     private LinearLayout keyboardKeysLayout;
     
-    private boolean isRussian = true; // Русский по умолчанию
+    private boolean isRussian = true; // Русский язык по умолчанию
 
     @Override
     public View onCreateInputView() {
+        // 1. Главный контейнер-пачка (FrameLayout)
         keyboardContainer = new FrameLayout(this);
-        
-        LayoutInflater inflater = getLayoutInflater();
-        int layoutId = getResources().getIdentifier("keyboard_main_layout", "layout", getPackageName());
-        keyboardLayout = (LinearLayout) inflater.inflate(layoutId, null);
-        
-        // Находим контейнер для кнопок букв внутри XML
-        int keysLayoutId = getResources().getIdentifier("keyboard_keys_layout", "id", getPackageName());
-        keyboardKeysLayout = keyboardLayout.findViewById(keysLayoutId);
+        keyboardContainer.setLayoutParams(new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
 
-        // Контейнер для встроенного YouTube и Игр
-        gameContainer = new FrameLayout(this);
-        gameContainer.setVisibility(View.GONE);
-        gameContainer.setBackgroundColor(Color.BLACK);
+        // 2. Основной макет клавиатуры (Кнопки меню + Буквы)
+        mainKeyboardLayout = new LinearLayout(this);
+        mainKeyboardLayout.setOrientation(LinearLayout.VERTICAL);
+        mainKeyboardLayout.setBackgroundColor(Color.parseColor("#121212"));
+
+        // Верхняя панель меню гейминга
+        LinearLayout menuLayout = new LinearLayout(this);
+        menuLayout.setOrientation(LinearLayout.HORIZONTAL);
+        menuLayout.setBackgroundColor(Color.parseColor("#1A1A1A"));
+        menuLayout.setPadding(4, 4, 4, 4);
         
+        addMenuButton(menuLayout, "YouTube", v -> openEmbeddedUrl("https://m.youtube.com"), "#FF0000");
+        addMenuButton(menuLayout, "Клик", v -> openEmbeddedUrl("https://orteil.dashnet.org/cookieclicker/"), "#03DAC6");
+        addMenuButton(menuLayout, "Тетрис", v -> openEmbeddedUrl("https://www.tetris.com"), "#BB86FC");
+        addMenuButton(menuLayout, "Змейка", v -> openEmbeddedUrl("https://www.google.com/search?q=play+snake"), "#CF6679");
+
+        mainKeyboardLayout.addView(menuLayout, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 110));
+
+        // Контейнер, куда будут динамически генерироваться ряды букв
+        keyboardKeysLayout = new LinearLayout(this);
+        keyboardKeysLayout.setOrientation(LinearLayout.VERTICAL);
+        keyboardKeysLayout.setPadding(2, 4, 2, 4);
+        mainKeyboardLayout.addView(keyboardKeysLayout, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // 3. Контейнер для встроенного WebView (Браузера)
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         webView.setWebViewClient(new WebViewClient());
-        gameContainer.addView(webView, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
-        ));
+        webView.setVisibility(View.GONE); // Изначально скрыт
         
-        // Кнопка закрытия Ютуба/Игр (Крестик)
+        // Кнопка закрытия браузера (Крестик поверх видео)
         Button btnClose = new Button(this);
         btnClose.setText("✕");
         btnClose.setTextColor(Color.RED);
-        btnClose.setTextSize(18);
+        btnClose.setTextSize(16);
         btnClose.setBackgroundColor(Color.TRANSPARENT);
         btnClose.setOnClickListener(v -> closeEmbeddedScreen());
-        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(120, 120);
+        
+        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(100, 100);
         closeParams.gravity = Gravity.TOP | Gravity.RIGHT;
-        gameContainer.addView(btnClose, closeParams);
+        closeParams.setMargins(0, 10, 10, 0);
 
-        keyboardContainer.addView(keyboardLayout);
-        keyboardContainer.addView(gameContainer, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, 650 // Оптимальная высота для игр и видео
+        // Собираем всё в один пирог
+        keyboardContainer.addView(mainKeyboardLayout);
+        keyboardContainer.addView(webView, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 600 // Высота скрытого Ютуб-окна в шторке
         ));
+        keyboardContainer.addView(btnClose, closeParams);
+        btnClose.setVisibility(View.GONE); // Скрыта вместе с браузером
+        webView.setTag(btnClose); // Сохраняем ссылку на кнопку, чтобы легко её прятать
 
-        setupMenuButtons(keyboardLayout);
+        // Отрисовываем кнопки букв
         buildKeyboard();
 
         return keyboardContainer;
     }
 
-    private void setupMenuButtons(View layout) {
-        setupMenuButton(layout, "btn_youtube", v -> openEmbeddedUrl("https://m.youtube.com"));
-        setupMenuButton(layout, "btn_clicker", v -> openEmbeddedUrl("https://orteil.dashnet.org/cookieclicker/")); 
-        setupMenuButton(layout, "btn_tetris", v -> openEmbeddedUrl("https://www.tetris.com")); // Временные ссылки для теста обхода блокировок
-        setupMenuButton(layout, "btn_snake", v -> openEmbeddedUrl("https://www.google.com/search?q=play+snake"));
-    }
-
-    private void setupMenuButton(View layout, String idName, View.OnClickListener listener) {
-        int id = getResources().getIdentifier(idName, "id", getPackageName());
-        View button = layout.findViewById(id);
-        if (button != null) {
-            button.setOnClickListener(listener);
-        }
-    }
-
     private void openEmbeddedUrl(String url) {
-        keyboardLayout.setVisibility(View.GONE);
-        gameContainer.setVisibility(View.VISIBLE);
+        mainKeyboardLayout.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
+        
+        Button btnClose = (Button) webView.getTag();
+        if (btnClose != null) btnClose.setVisibility(View.VISIBLE);
+        
         webView.loadUrl(url);
     }
 
     private void closeEmbeddedScreen() {
-        gameContainer.setVisibility(View.GONE);
-        keyboardLayout.setVisibility(View.VISIBLE);
-        webView.stopLoading();
         webView.setVisibility(View.GONE);
+        mainKeyboardLayout.setVisibility(View.VISIBLE);
+        
+        Button btnClose = (Button) webView.getTag();
+        if (btnClose != null) btnClose.setVisibility(View.GONE);
+        
+        webView.stopLoading();
+        webView.loadUrl("about:blank");
     }
 
-    // --- ГАРАНТИРОВАННАЯ КРАСИВАЯ РАСКЛАДКА БЕЗ ТОЧЕК ---
+    // Динамическая генерация клавиш без XML
     private void buildKeyboard() {
         if (keyboardKeysLayout == null) return;
         keyboardKeysLayout.removeAllViews();
 
-        // Оптимальное распределение букв, чтобы всё помещалось на любом экране
         String[] row1Keys = isRussian ? 
             new String[]{"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з"} : 
             new String[]{"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"};
@@ -138,7 +145,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         }
         keyboardKeysLayout.addView(row2, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120));
 
-        // Ряд 3 + Стереть
+        // Ряд 3 + Бэкспейс
         LinearLayout row3 = new LinearLayout(this);
         row3.setGravity(Gravity.CENTER_HORIZONTAL);
         for (String key : row3Keys) {
@@ -150,14 +157,14 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         }, 1.5f, "#3D2525");
         keyboardKeysLayout.addView(row3, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120));
 
-        // Ряд 4: Смена языка и Пробел
+        // Ряд 4: Язык + Пробел
         LinearLayout row4 = new LinearLayout(this);
         row4.setGravity(Gravity.CENTER_HORIZONTAL);
         
         String langText = isRussian ? "РУС" : "ENG";
         addKeyButton(row4, langText, v -> {
             isRussian = !isRussian;
-            buildKeyboard(); // Переключаем язык!
+            buildKeyboard(); // Переключаем раскладку прямо в памяти!
         }, 2.0f, "#1F1F1F");
 
         addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 5.0f, "#2C2C2C");
@@ -184,12 +191,31 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         parent.addView(btn);
     }
 
+    private void addMenuButton(LinearLayout parent, String text, View.OnClickListener listener, String colorHex) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextColor(Color.parseColor(colorHex));
+        btn.setTextSize(11);
+        btn.setGravity(Gravity.CENTER);
+        btn.setOnClickListener(listener);
+
+        GradientDrawable shape = new GradientDrawable();
+        shape.setCornerRadius(10);
+        shape.setColor(Color.parseColor("#222222"));
+        btn.setBackground(shape);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
+        params.setMargins(4, 4, 4, 4);
+        btn.setLayoutParams(params);
+        parent.addView(btn);
+    }
+
     private void typeText(String text) {
         InputConnection ic = getCurrentInputConnection();
         if (ic != null) ic.commitText(text, 1);
     }
 
-    // --- ОБЯЗАТЕЛЬНЫЕ МЕТОДЫ ИНТЕРФЕЙСА ДЛЯ ИСПРАВЛЕНИЯ ОШИБКИ СБОРКИ ---
+    // --- Обязательные методы системного интерфейса, чтобы Gradle не ругался ---
     @Override public void onPress(int primaryCode) {}
     @Override public void onRelease(int primaryCode) {}
     @Override public void onKey(int primaryCode, int[] keyCodes) {}
