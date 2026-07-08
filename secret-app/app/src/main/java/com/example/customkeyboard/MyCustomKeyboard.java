@@ -1,10 +1,10 @@
 package com.example.customkeyboard;
 
 import android.inputmethodservice.InputMethodService;
-import android.inputmethodservice.Keyboard;
 import android.inputmethodservice.KeyboardView;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -13,9 +13,9 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.GridLayout;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.view.Gravity;
 
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -23,31 +23,27 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private FrameLayout keyboardContainer;
     private FrameLayout gameContainer;
     private LinearLayout keyboardLayout;
+    private LinearLayout keyboardKeysLayout;
     
-    private boolean isRussian = true; // Переключатель языка по умолчанию
-
-    // Переменные для игр
-    private int clickerScore = 0;
-    private boolean isXTurn = true;
-    private String[] board = new String[9];
+    private boolean isRussian = true; // Русский по умолчанию
 
     @Override
     public View onCreateInputView() {
-        // Главный контейнер
         keyboardContainer = new FrameLayout(this);
         
         LayoutInflater inflater = getLayoutInflater();
-        
-        // Загружаем основной макет клавиатуры (мы создадим его в Шаге 2)
         int layoutId = getResources().getIdentifier("keyboard_main_layout", "layout", getPackageName());
         keyboardLayout = (LinearLayout) inflater.inflate(layoutId, null);
         
-        // Контейнер для встроенного YouTube/Игр
+        // Находим контейнер для кнопок букв внутри XML
+        int keysLayoutId = getResources().getIdentifier("keyboard_keys_layout", "id", getPackageName());
+        keyboardKeysLayout = keyboardLayout.findViewById(keysLayoutId);
+
+        // Контейнер для встроенного YouTube и Игр
         gameContainer = new FrameLayout(this);
-        gameContainer.setVisibility(View.GONE); // Изначально скрыт
+        gameContainer.setVisibility(View.GONE);
         gameContainer.setBackgroundColor(Color.BLACK);
         
-        // Добавляем WebView прямо в клавиатуру
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -57,37 +53,33 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
         ));
         
-        // Добавляем кнопку закрытия встроенного окна
+        // Кнопка закрытия Ютуба/Игр (Крестик)
         Button btnClose = new Button(this);
         btnClose.setText("✕");
         btnClose.setTextColor(Color.RED);
+        btnClose.setTextSize(18);
         btnClose.setBackgroundColor(Color.TRANSPARENT);
         btnClose.setOnClickListener(v -> closeEmbeddedScreen());
-        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(100, 100);
-        closeParams.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
+        FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(120, 120);
+        closeParams.gravity = Gravity.TOP | Gravity.RIGHT;
         gameContainer.addView(btnClose, closeParams);
 
         keyboardContainer.addView(keyboardLayout);
         keyboardContainer.addView(gameContainer, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, 500 // Высота встроенного окна
+            FrameLayout.LayoutParams.MATCH_PARENT, 650 // Оптимальная высота для игр и видео
         ));
 
-        // Инициализируем кнопки меню
         setupMenuButtons(keyboardLayout);
-        
-        // Отрисовываем клавиши
         buildKeyboard();
 
         return keyboardContainer;
     }
 
-    // Метод настройки кнопок меню (Ютуб, Игры)
     private void setupMenuButtons(View layout) {
         setupMenuButton(layout, "btn_youtube", v -> openEmbeddedUrl("https://m.youtube.com"));
-        setupMenuButton(layout, "btn_clicker", v -> openEmbeddedClicker());
-        setupMenuButton(layout, "btn_tic_tac", v -> openEmbeddedTicTacToe());
-        setupMenuButton(layout, "btn_tetris", v -> openEmbeddedUrl("file:///android_asset/tetris.html"));
-        setupMenuButton(layout, "btn_snake", v -> openEmbeddedUrl("file:///android_asset/snake.html"));
+        setupMenuButton(layout, "btn_clicker", v -> openEmbeddedUrl("https://orteil.dashnet.org/cookieclicker/")); 
+        setupMenuButton(layout, "btn_tetris", v -> openEmbeddedUrl("https://www.tetris.com")); // Временные ссылки для теста обхода блокировок
+        setupMenuButton(layout, "btn_snake", v -> openEmbeddedUrl("https://www.google.com/search?q=play+snake"));
     }
 
     private void setupMenuButton(View layout, String idName, View.OnClickListener listener) {
@@ -98,34 +90,26 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         }
     }
 
-    // --- ОТКРЫТИЕ ВСТРОЕННЫХ ЭКРАНОВ ---
-    
     private void openEmbeddedUrl(String url) {
-        keyboardLayout.setVisibility(View.GONE); // Скрываем клавиши
-        gameContainer.setVisibility(View.VISIBLE); // Показываем окно
+        keyboardLayout.setVisibility(View.GONE);
+        gameContainer.setVisibility(View.VISIBLE);
         webView.setVisibility(View.VISIBLE);
         webView.loadUrl(url);
     }
 
-    private void openEmbeddedClicker() {
-        // Логика кликера, встроенная в клавиатуру
-        // (аналогично тому, что было в GameActivity, но внутри gameContainer)
-    }
-    
-    private void openEmbeddedTicTacToe() {
-        // Логика крестиков-ноликов
-    }
-
     private void closeEmbeddedScreen() {
-        gameContainer.setVisibility(View.GONE); // Скрываем окно
-        keyboardLayout.setVisibility(View.VISIBLE); // Показываем клавиши
+        gameContainer.setVisibility(View.GONE);
+        keyboardLayout.setVisibility(View.VISIBLE);
         webView.stopLoading();
         webView.setVisibility(View.GONE);
     }
 
-    // --- ЛОГИКА КЛАВИАТУРЫ (ПЕРЕКЛЮЧАТЕЛЬ И БУКВЫ) ---
+    // --- ГАРАНТИРОВАННАЯ КРАСИВАЯ РАСКЛАДКА БЕЗ ТОЧЕК ---
+    private void buildKeyboard() {
+        if (keyboardKeysLayout == null) return;
+        keyboardKeysLayout.removeAllViews();
 
-    // Оптимизированная раскладка (буквы распределены равномерно по 10-11 в ряд)
+        // Оптимальное распределение букв, чтобы всё помещалось на любом экране
         String[] row1Keys = isRussian ? 
             new String[]{"й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з"} : 
             new String[]{"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"};
@@ -137,4 +121,81 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         String[] row3Keys = isRussian ? 
             new String[]{"я", "ч", "с", "м", "и", "т", "ь", "б", "ю", "х", "ъ"} : 
             new String[]{"z", "x", "c", "v", "b", "n", "m"};
+
+        // Ряд 1
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setGravity(Gravity.CENTER_HORIZONTAL);
+        for (String key : row1Keys) {
+            addKeyButton(row1, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
+        }
+        keyboardKeysLayout.addView(row1, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120));
+
+        // Ряд 2
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setGravity(Gravity.CENTER_HORIZONTAL);
+        for (String key : row2Keys) {
+            addKeyButton(row2, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
+        }
+        keyboardKeysLayout.addView(row2, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120));
+
+        // Ряд 3 + Стереть
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setGravity(Gravity.CENTER_HORIZONTAL);
+        for (String key : row3Keys) {
+            addKeyButton(row3, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
+        }
+        addKeyButton(row3, "⌫", v -> {
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) ic.deleteSurroundingText(1, 0);
+        }, 1.5f, "#3D2525");
+        keyboardKeysLayout.addView(row3, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120));
+
+        // Ряд 4: Смена языка и Пробел
+        LinearLayout row4 = new LinearLayout(this);
+        row4.setGravity(Gravity.CENTER_HORIZONTAL);
+        
+        String langText = isRussian ? "РУС" : "ENG";
+        addKeyButton(row4, langText, v -> {
+            isRussian = !isRussian;
+            buildKeyboard(); // Переключаем язык!
+        }, 2.0f, "#1F1F1F");
+
+        addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 5.0f, "#2C2C2C");
+        keyboardKeysLayout.addView(row4, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120));
+    }
+
+    private void addKeyButton(LinearLayout parent, String text, View.OnClickListener listener, float weight, String colorHex) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(14);
+        btn.setPadding(0, 0, 0, 0);
+        btn.setGravity(Gravity.CENTER);
+        btn.setOnClickListener(listener);
+
+        GradientDrawable shape = new GradientDrawable();
+        shape.setCornerRadius(10);
+        shape.setColor(Color.parseColor(colorHex));
+        btn.setBackground(shape);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
+        params.setMargins(3, 4, 3, 4);
+        btn.setLayoutParams(params);
+        parent.addView(btn);
+    }
+
+    private void typeText(String text) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null) ic.commitText(text, 1);
+    }
+
+    // --- ОБЯЗАТЕЛЬНЫЕ МЕТОДЫ ИНТЕРФЕЙСА ДЛЯ ИСПРАВЛЕНИЯ ОШИБКИ СБОРКИ ---
+    @Override public void onPress(int primaryCode) {}
+    @Override public void onRelease(int primaryCode) {}
+    @Override public void onKey(int primaryCode, int[] keyCodes) {}
+    @Override public void onText(CharSequence text) {}
+    @Override public void swipeLeft() {}
+    @Override public void swipeRight() {}
+    @Override public void swipeDown() {}
+    @Override public void swipeUp() {}
 }
