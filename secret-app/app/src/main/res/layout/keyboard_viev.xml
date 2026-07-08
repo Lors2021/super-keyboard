@@ -1,65 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/keyboard_layout"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="#1E1E1E">
+    android:background="#121212">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="45dp"
+        android:layout_height="50dp"
         android:orientation="horizontal"
-        android:background="#111111"
-        android:padding="4dp">
-        <Button android:id="@+id/btn_youtube" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="YouTube" android:textSize="9sp"/>
-        <Button android:id="@+id/btn_clicker" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Клик" android:textSize="9sp"/>
-        <Button android:id="@+id/btn_tic_tac" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Х/О" android:textSize="9sp"/>
-        <Button android:id="@+id/btn_tetris" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Тетрис" android:textSize="9sp"/>
-        <Button android:id="@+id/btn_snake" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Змейка" android:textSize="9sp"/>
+        android:background="#1A1A1A"
+        android:padding="2dp">
+        <Button android:id="@+id/btn_youtube" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="YouTube" android:textSize="10sp" android:textColor="#FF0000" android:background="@android:color/transparent"/>
+        <Button android:id="@+id/btn_clicker" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Клик" android:textSize="10sp" android:textColor="#03DAC6" android:background="@android:color/transparent"/>
+        <Button android:id="@+id/btn_tic_tac" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Х/О" android:textSize="10sp" android:textColor="#BB86FC" android:background="@android:color/transparent"/>
+        <Button android:id="@+id/btn_tetris" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Тетрис" android:textSize="10sp" android:textColor="#BB86FC" android:background="@android:color/transparent"/>
+        <Button android:id="@+id/btn_snake" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Змейка" android:textSize="10sp" android:textColor="#CF6679" android:background="@android:color/transparent"/>
     </LinearLayout>
 
-    <FrameLayout
-        android:id="@+id/content_container"
-        android:layout_width="match_parent"
-        android:layout_height="180dp"
-        android:background="#000000">
-        <WebView 
-            android:id="@+id/keyboard_webview" 
-            android:layout_width="match_parent" 
-            android:layout_height="match_parent" 
-            android:visibility="gone" />
-    </FrameLayout>
-
     <LinearLayout
+        android:id="@+id/keyboard_keys_layout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="5dp">
-        
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:orientation="horizontal">
-            <Button android:id="@+id/key_q" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Q"/>
-            <Button android:id="@+id/key_w" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="W"/>
-            <Button android:id="@+id/key_e" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="E"/>
-            <Button android:id="@+id/key_r" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="R"/>
-            <Button android:id="@+id/key_t" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="T"/>
-            <Button android:id="@+id/key_y" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="Y"/>
-            <Button android:id="@+id/key_u" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="U"/>
-            <Button android:id="@+id/key_i" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="I"/>
-            <Button android:id="@+id/key_o" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="O"/>
-            <Button android:id="@+id/key_p" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="P"/>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:orientation="horizontal"
-            android:layout_marginTop="5dp">
-            <Button android:id="@+id/key_space" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="3" android:text="ПРОБЕЛ"/>
-            <Button android:id="@+id/key_delete" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:text="⌫" android:backgroundTint="#D32F2F"/>
-        </LinearLayout>
-        
+        android:padding="2dp">
     </LinearLayout>
+
 </LinearLayout>
