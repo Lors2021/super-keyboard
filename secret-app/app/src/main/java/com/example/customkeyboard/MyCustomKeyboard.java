@@ -24,6 +24,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private LinearLayout miniKeyboard;
 
     private boolean isRussian = true;
+    private boolean miniRussian = false;  // язык мини-клавиатуры
 
     @Override
     public View onCreateInputView() {
@@ -41,10 +42,10 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         menuLayout.setBackgroundColor(Color.parseColor("#151515"));
         menuLayout.setPadding(6, 6, 6, 6);
 
-        addMenuButton(menuLayout, "YouTube",  v -> openWeb("https://m.youtube.com"),     "#FF5555");
-        addMenuButton(menuLayout, "Telegram", v -> openWeb("https://web.telegram.org"), "#229ED9");
-        addMenuButton(menuLayout, "WhatsApp", v -> openWeb("https://web.whatsapp.com"), "#25D366");
-        addMenuButton(menuLayout, "✕",        v -> closeWeb(),                          "#FF4444");
+        addMenuButton(menuLayout, "YouTube",  v -> openWeb("https://m.youtube.com"),         "#FF5555");
+        addMenuButton(menuLayout, "Telegram", v -> openWeb("https://web.telegram.org"),     "#229ED9");
+        addMenuButton(menuLayout, "Google",   v -> openWeb("https://www.google.com"),       "#FBBC05");
+        addMenuButton(menuLayout, "✕",        v -> closeWeb(),                              "#FF4444");
 
         rootLayout.addView(menuLayout, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 100));
@@ -52,7 +53,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         // ===== Область контента =====
         FrameLayout contentArea = new FrameLayout(this);
 
-        // Основная клавиатура
         mainKeyboardLayout = new LinearLayout(this);
         mainKeyboardLayout.setOrientation(LinearLayout.VERTICAL);
         keyboardKeysLayout = new LinearLayout(this);
@@ -63,7 +63,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         contentArea.addView(mainKeyboardLayout, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // WebView
         int screenH = getResources().getDisplayMetrics().heightPixels;
         int webH = (int)(screenH * 0.60);
 
@@ -83,7 +82,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         rootLayout.addView(contentArea, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ===== Мини-клавиатура внизу =====
         miniKeyboard = buildMiniKeyboard();
         miniKeyboard.setVisibility(View.GONE);
         rootLayout.addView(miniKeyboard, new LinearLayout.LayoutParams(
@@ -96,14 +94,13 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return keyboardContainer;
     }
 
-    // ===== Мини-клавиатура для страницы =====
+    // ===== Мини-клавиатура =====
     private LinearLayout buildMiniKeyboard() {
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.VERTICAL);
         wrapper.setBackgroundColor(Color.parseColor("#151515"));
         wrapper.setPadding(4, 4, 4, 6);
 
-        // Верхняя полоска: свернуть / очистить
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -150,13 +147,23 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         wrapper.addView(header, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 56));
 
-        // Ряды клавиш
-        String[][] rows = new String[][]{
-            {"1","2","3","4","5","6","7","8","9","0"},
-            {"q","w","e","r","t","y","u","i","o","p"},
-            {"a","s","d","f","g","h","j","k","l"},
-            {"z","x","c","v","b","n","m","@","."},
-        };
+        // Ряды (зависят от miniRussian)
+        String[][] rows;
+        if (miniRussian) {
+            rows = new String[][]{
+                {"1","2","3","4","5","6","7","8","9","0"},
+                {"й","ц","у","к","е","н","г","ш","щ","з","х","ъ"},
+                {"ф","ы","в","а","п","р","о","л","д","ж","э"},
+                {"я","ч","с","м","и","т","ь","б","ю","."}
+            };
+        } else {
+            rows = new String[][]{
+                {"1","2","3","4","5","6","7","8","9","0"},
+                {"q","w","e","r","t","y","u","i","o","p"},
+                {"a","s","d","f","g","h","j","k","l"},
+                {"z","x","c","v","b","n","m","@","."}
+            };
+        }
 
         for (String[] row : rows) {
             LinearLayout r = new LinearLayout(this);
@@ -169,11 +176,24 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 ViewGroup.LayoutParams.MATCH_PARENT, 66));
         }
 
-        // Нижний ряд: пробел / символы / backspace / Enter
+        // Нижний ряд: РУС/ENG · пробел · символы · backspace · Enter
         LinearLayout bottomRow = new LinearLayout(this);
         bottomRow.setOrientation(LinearLayout.HORIZONTAL);
         bottomRow.setGravity(Gravity.CENTER);
-        bottomRow.addView(makeMiniKey("ПРОБЕЛ", 4f, () -> onMiniKey(" ")));
+
+        bottomRow.addView(makeMiniKey(miniRussian ? "РУС" : "ENG", 1.3f, () -> {
+            miniRussian = !miniRussian;
+            // Пересобираем мини-клавиатуру
+            LinearLayout parent = (LinearLayout) miniKeyboard;
+            parent.removeAllViews();
+            LinearLayout rebuilt = buildMiniKeyboard();
+            while (rebuilt.getChildCount() > 0) {
+                View c = rebuilt.getChildAt(0);
+                rebuilt.removeViewAt(0);
+                parent.addView(c);
+            }
+        }));
+        bottomRow.addView(makeMiniKey("ПРОБЕЛ", 3f, () -> onMiniKey(" ")));
         bottomRow.addView(makeMiniKey("-", 1f, () -> onMiniKey("-")));
         bottomRow.addView(makeMiniKey("_", 1f, () -> onMiniKey("_")));
         bottomRow.addView(makeMiniKey("⌫", 1.5f, () -> onMiniKey("⌫")));
@@ -212,7 +232,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         }
     }
 
-    // ===== JS-инъекции в активное поле страницы =====
     private void injectIntoPage(String text) {
         String js =
             "(function(){" +
@@ -275,7 +294,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                       .replace("\n", "\\n") + "'";
     }
 
-    // ===== Открыть/закрыть встроенный браузер =====
     private void openWeb(String url) {
         mainKeyboardLayout.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
@@ -291,7 +309,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         webView.loadUrl("about:blank");
     }
 
-    // ===== Основная клавиатура (для чата) =====
+    // ===== Основная клавиатура =====
     private void buildKeyboard() {
         if (keyboardKeysLayout == null) return;
         keyboardKeysLayout.removeAllViews();
