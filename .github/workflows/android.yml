@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -10,31 +10,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    # Настраиваем сборщик в правильной папке
-    - name: Setup Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.9
-      working-directory: './secret-app'
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-    - name: Update distribution URL
-      run: sed -i 's/gradle-8.5-bin.zip/gradle-8.9-bin.zip/g' gradle/wrapper/gradle-wrapper.properties || true
-      working-directory: './secret-app'
+      - name: Build debug APK
+        working-directory: ./secret-app
+        run: gradle assembleDebug --no-daemon
 
-    # Собираем приложение
-    - name: Build with Gradle
-      run: ./gradlew assembleDebug
-      working-directory: './secret-app'
-
-    # Сохраняем готовый APK
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: keyboard-app
-        path: secret-app/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-debug-apk
+          path: secret-app/app/build/outputs/apk/debug/*.apk
