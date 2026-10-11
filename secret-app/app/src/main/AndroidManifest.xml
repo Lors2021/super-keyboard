@@ -5,6 +5,7 @@
 
     <application 
         android:allowBackup="true" 
+        android:hardwareAccelerated="true"
         android:label="Супер Клавиатура">
         
         <activity 
