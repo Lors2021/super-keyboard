@@ -9,30 +9,21 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
-import android.text.InputType;
 
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
     private WebView webView;
     private FrameLayout keyboardContainer;
-    private LinearLayout rootLayout;
     private LinearLayout mainKeyboardLayout;
     private LinearLayout keyboardKeysLayout;
-    private LinearLayout searchBar;
-    private LinearLayout miniKeyboardSection;
-    private EditText searchInput;
-    private Button btnModeToggle;
-    private Button floatBtn;
+    private LinearLayout miniKeyboard;
 
     private boolean isRussian = true;
-    private boolean modeSearch = false;   // false = пишем в поле страницы
-    private boolean collapsed = false;    // true = клавиатура свёрнута в кнопку
 
     @Override
     public View onCreateInputView() {
@@ -40,21 +31,20 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         keyboardContainer.setLayoutParams(new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ===== Корневой вертикальный стек =====
-        rootLayout = new LinearLayout(this);
+        LinearLayout rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
-        rootLayout.setBackgroundColor(Color.parseColor("#121212"));
+        rootLayout.setBackgroundColor(Color.parseColor("#0F0F0F"));
 
         // ===== Меню =====
         LinearLayout menuLayout = new LinearLayout(this);
         menuLayout.setOrientation(LinearLayout.HORIZONTAL);
-        menuLayout.setBackgroundColor(Color.parseColor("#1A1A1A"));
-        menuLayout.setPadding(4, 4, 4, 4);
+        menuLayout.setBackgroundColor(Color.parseColor("#151515"));
+        menuLayout.setPadding(6, 6, 6, 6);
 
-        addMenuButton(menuLayout, "YouTube",  v -> openEmbeddedUrl("https://m.youtube.com"),     "#FF5555");
-        addMenuButton(menuLayout, "Telegram", v -> openEmbeddedUrl("https://web.telegram.org"), "#229ED9");
-        addMenuButton(menuLayout, "WhatsApp", v -> openEmbeddedUrl("https://web.whatsapp.com"), "#25D366");
-        addMenuButton(menuLayout, "✕",        v -> closeEmbeddedScreen(),                        "#FF4444");
+        addMenuButton(menuLayout, "YouTube",  v -> openWeb("https://m.youtube.com"),     "#FF5555");
+        addMenuButton(menuLayout, "Telegram", v -> openWeb("https://web.telegram.org"), "#229ED9");
+        addMenuButton(menuLayout, "WhatsApp", v -> openWeb("https://web.whatsapp.com"), "#25D366");
+        addMenuButton(menuLayout, "✕",        v -> closeWeb(),                          "#FF4444");
 
         rootLayout.addView(menuLayout, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 100));
@@ -62,19 +52,20 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         // ===== Область контента =====
         FrameLayout contentArea = new FrameLayout(this);
 
+        // Основная клавиатура
         mainKeyboardLayout = new LinearLayout(this);
         mainKeyboardLayout.setOrientation(LinearLayout.VERTICAL);
         keyboardKeysLayout = new LinearLayout(this);
         keyboardKeysLayout.setOrientation(LinearLayout.VERTICAL);
-        keyboardKeysLayout.setPadding(2, 4, 2, 4);
+        keyboardKeysLayout.setPadding(4, 6, 4, 6);
         mainKeyboardLayout.addView(keyboardKeysLayout, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         contentArea.addView(mainKeyboardLayout, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ===== WebView — 55% высоты экрана =====
+        // WebView
         int screenH = getResources().getDisplayMetrics().heightPixels;
-        int webH = (int)(screenH * 0.55);
+        int webH = (int)(screenH * 0.60);
 
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
@@ -85,8 +76,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         settings.setMediaPlaybackRequiresUserGesture(false);
         webView.setWebViewClient(new WebViewClient());
         webView.setBackgroundColor(Color.WHITE);
-        webView.setFocusable(true);
-        webView.setFocusableInTouchMode(true);
         webView.setVisibility(View.GONE);
         contentArea.addView(webView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, webH));
@@ -94,149 +83,79 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         rootLayout.addView(contentArea, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        keyboardContainer.addView(rootLayout, new FrameLayout.LayoutParams(
+        // ===== Мини-клавиатура внизу =====
+        miniKeyboard = buildMiniKeyboard();
+        miniKeyboard.setVisibility(View.GONE);
+        rootLayout.addView(miniKeyboard, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ===== Панель поиска =====
-        searchBar = buildSearchBar();
-        searchBar.setVisibility(View.GONE);
-        keyboardContainer.addView(searchBar, new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
-
-        // ===== Плавающая кнопка свернуть/развернуть =====
-        floatBtn = new Button(this);
-        floatBtn.setText("▼");
-        floatBtn.setTextColor(Color.WHITE);
-        floatBtn.setTextSize(18);
-        floatBtn.setPadding(0, 0, 0, 0);
-        GradientDrawable floatShape = new GradientDrawable();
-        floatShape.setCornerRadius(50);
-        floatShape.setColor(Color.parseColor("#CC222222"));
-        floatBtn.setBackground(floatShape);
-        floatBtn.setOnClickListener(v -> toggleCollapsed());
-
-        FrameLayout.LayoutParams fParams = new FrameLayout.LayoutParams(110, 110);
-        fParams.gravity = Gravity.BOTTOM | Gravity.RIGHT;
-        fParams.setMargins(0, 0, 10, 10);
-        keyboardContainer.addView(floatBtn, fParams);
+        keyboardContainer.addView(rootLayout, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         buildKeyboard();
         return keyboardContainer;
     }
 
-    // ===== Свернуть/развернуть всю клавиатуру =====
-    private void toggleCollapsed() {
-        collapsed = !collapsed;
-        if (collapsed) {
-            rootLayout.setVisibility(View.GONE);
-            searchBar.setVisibility(View.GONE);
-            floatBtn.setText("▲");
-        } else {
-            rootLayout.setVisibility(View.VISIBLE);
-            if (webView.getVisibility() == View.VISIBLE) {
-                searchBar.setVisibility(View.VISIBLE);
-            }
-            floatBtn.setText("▼");
-        }
-    }
-
-    // ===== Панель поиска =====
-    private LinearLayout buildSearchBar() {
+    // ===== Мини-клавиатура для страницы =====
+    private LinearLayout buildMiniKeyboard() {
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.VERTICAL);
-        wrapper.setBackgroundColor(Color.parseColor("#1A1A1A"));
-        wrapper.setPadding(4, 4, 4, 4);
+        wrapper.setBackgroundColor(Color.parseColor("#151515"));
+        wrapper.setPadding(4, 4, 4, 6);
 
-        LinearLayout rowTop = new LinearLayout(this);
-        rowTop.setOrientation(LinearLayout.HORIZONTAL);
+        // Верхняя полоска: свернуть / очистить
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
 
-        searchInput = new EditText(this);
-        searchInput.setHint("→ Ввод в поле страницы");
-        searchInput.setTextColor(Color.WHITE);
-        searchInput.setHintTextColor(Color.LTGRAY);
-        searchInput.setBackgroundColor(Color.parseColor("#2C2C2C"));
-        searchInput.setPadding(16, 8, 16, 8);
-        searchInput.setInputType(InputType.TYPE_NULL);
-        searchInput.setShowSoftInputOnFocus(false);
-        searchInput.setFocusable(false);
-        searchInput.setFocusableInTouchMode(false);
-        searchInput.setLayoutParams(new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-
-        btnModeToggle = new Button(this);
-        btnModeToggle.setText("🔎");
-        btnModeToggle.setTextColor(Color.WHITE);
-        btnModeToggle.setBackgroundColor(Color.parseColor("#3D3D3D"));
-        btnModeToggle.setOnClickListener(v -> toggleMode());
-        LinearLayout.LayoutParams bmParams = new LinearLayout.LayoutParams(120,
-            ViewGroup.LayoutParams.MATCH_PARENT);
-        bmParams.setMargins(4, 0, 0, 0);
-        btnModeToggle.setLayoutParams(bmParams);
-
-        Button btnSearch = new Button(this);
-        btnSearch.setText("OK");
-        btnSearch.setTextColor(Color.WHITE);
-        btnSearch.setBackgroundColor(Color.parseColor("#3D3D3D"));
-        btnSearch.setOnClickListener(v -> doSearch());
-        LinearLayout.LayoutParams bsParams = new LinearLayout.LayoutParams(120,
-            ViewGroup.LayoutParams.MATCH_PARENT);
-        bsParams.setMargins(4, 0, 0, 0);
-        btnSearch.setLayoutParams(bsParams);
-
-        Button btnToggleMini = new Button(this);
-        btnToggleMini.setText("⌨");
-        btnToggleMini.setTextColor(Color.WHITE);
-        btnToggleMini.setBackgroundColor(Color.parseColor("#3D3D3D"));
-        btnToggleMini.setOnClickListener(v -> {
-            if (miniKeyboardSection.getVisibility() == View.VISIBLE) {
-                miniKeyboardSection.setVisibility(View.GONE);
-            } else {
-                miniKeyboardSection.setVisibility(View.VISIBLE);
-            }
+        Button hideBtn = new Button(this);
+        hideBtn.setText("⌄");
+        hideBtn.setTextColor(Color.WHITE);
+        hideBtn.setTextSize(16);
+        hideBtn.setPadding(0, 0, 0, 0);
+        hideBtn.setAllCaps(false);
+        GradientDrawable hs = new GradientDrawable();
+        hs.setCornerRadius(10);
+        hs.setColor(Color.parseColor("#252525"));
+        hideBtn.setBackground(hs);
+        hideBtn.setOnClickListener(v -> {
+            int vis = wrapper.getChildAt(1).getVisibility() == View.VISIBLE
+                    ? View.GONE : View.VISIBLE;
+            for (int i = 1; i < wrapper.getChildCount(); i++)
+                wrapper.getChildAt(i).setVisibility(vis);
+            hideBtn.setText(vis == View.VISIBLE ? "⌄" : "⌃");
         });
-        LinearLayout.LayoutParams btParams = new LinearLayout.LayoutParams(120,
-            ViewGroup.LayoutParams.MATCH_PARENT);
-        btParams.setMargins(4, 0, 0, 0);
-        btnToggleMini.setLayoutParams(btParams);
+        LinearLayout.LayoutParams hb = new LinearLayout.LayoutParams(90, 52);
+        hb.setMargins(4, 2, 4, 2);
+        hideBtn.setLayoutParams(hb);
+        header.addView(hideBtn);
 
-        rowTop.addView(searchInput);
-        rowTop.addView(btnModeToggle);
-        rowTop.addView(btnSearch);
-        rowTop.addView(btnToggleMini);
-        wrapper.addView(rowTop, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 80));
+        Button clearBtn = new Button(this);
+        clearBtn.setText("Очистить");
+        clearBtn.setTextColor(Color.parseColor("#FF9999"));
+        clearBtn.setTextSize(12);
+        clearBtn.setPadding(0, 0, 0, 0);
+        clearBtn.setAllCaps(false);
+        GradientDrawable cs = new GradientDrawable();
+        cs.setCornerRadius(10);
+        cs.setColor(Color.parseColor("#252525"));
+        clearBtn.setBackground(cs);
+        clearBtn.setOnClickListener(v -> clearActiveField());
+        LinearLayout.LayoutParams cb = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, 52);
+        cb.setMargins(4, 2, 4, 2);
+        clearBtn.setLayoutParams(cb);
+        header.addView(clearBtn);
 
-        miniKeyboardSection = new LinearLayout(this);
-        miniKeyboardSection.setOrientation(LinearLayout.VERTICAL);
-        rebuildMiniKeyboard();
-        wrapper.addView(miniKeyboardSection, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        wrapper.addView(header, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 56));
 
-        return wrapper;
-    }
-
-    private void toggleMode() {
-        modeSearch = !modeSearch;
-        if (modeSearch) {
-            btnModeToggle.setText("⌨");
-            searchInput.setHint("Поиск YouTube...");
-            searchInput.setText("");
-        } else {
-            btnModeToggle.setText("🔎");
-            searchInput.setHint("→ Ввод в поле страницы");
-            searchInput.setText("");
-        }
-    }
-
-    private void rebuildMiniKeyboard() {
-        if (miniKeyboardSection == null) return;
-        miniKeyboardSection.removeAllViews();
-
+        // Ряды клавиш
         String[][] rows = new String[][]{
             {"1","2","3","4","5","6","7","8","9","0"},
             {"q","w","e","r","t","y","u","i","o","p"},
             {"a","s","d","f","g","h","j","k","l"},
-            {"z","x","c","v","b","n","m"}
+            {"z","x","c","v","b","n","m","@","."},
         };
 
         for (String[] row : rows) {
@@ -244,79 +163,68 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             r.setOrientation(LinearLayout.HORIZONTAL);
             r.setGravity(Gravity.CENTER);
             for (String k : row) {
-                r.addView(makeMiniButton(k, 1f, () -> onMiniKey(k)));
+                r.addView(makeMiniKey(k, 1f, () -> onMiniKey(k)));
             }
-            miniKeyboardSection.addView(r, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 70));
+            wrapper.addView(r, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 66));
         }
 
+        // Нижний ряд: пробел / символы / backspace / Enter
         LinearLayout bottomRow = new LinearLayout(this);
         bottomRow.setOrientation(LinearLayout.HORIZONTAL);
         bottomRow.setGravity(Gravity.CENTER);
-        bottomRow.addView(makeMiniButton("@", 1f, () -> onMiniKey("@")));
-        bottomRow.addView(makeMiniButton(".", 1f, () -> onMiniKey(".")));
-        bottomRow.addView(makeMiniButton("-", 1f, () -> onMiniKey("-")));
-        bottomRow.addView(makeMiniButton("_", 1f, () -> onMiniKey("_")));
-        bottomRow.addView(makeMiniButton("ПРОБЕЛ", 3f, () -> onMiniKey(" ")));
-        bottomRow.addView(makeMiniButton("⌫", 1.5f, () -> onMiniKey("⌫")));
-        bottomRow.addView(makeMiniButton("OK", 1.5f, () -> doSearch()));
-        miniKeyboardSection.addView(bottomRow, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 70));
+        bottomRow.addView(makeMiniKey("ПРОБЕЛ", 4f, () -> onMiniKey(" ")));
+        bottomRow.addView(makeMiniKey("-", 1f, () -> onMiniKey("-")));
+        bottomRow.addView(makeMiniKey("_", 1f, () -> onMiniKey("_")));
+        bottomRow.addView(makeMiniKey("⌫", 1.5f, () -> onMiniKey("⌫")));
+        bottomRow.addView(makeMiniKey("↵", 1.5f, () -> sendEnter()));
+        wrapper.addView(bottomRow, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 66));
+
+        return wrapper;
     }
 
-    private Button makeMiniButton(String text, float weight, Runnable onClick) {
+    private Button makeMiniKey(String text, float weight, Runnable onClick) {
         Button b = new Button(this);
         b.setText(text);
-        b.setTextSize(14);
+        b.setTextSize(16);
         b.setTextColor(Color.WHITE);
         b.setPadding(0, 0, 0, 0);
+        b.setAllCaps(false);
+        b.setGravity(Gravity.CENTER);
         GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(8);
-        shape.setColor(Color.parseColor("#3D3D3D"));
+        shape.setCornerRadius(12);
+        shape.setColor(Color.parseColor("#2A2A2A"));
         b.setBackground(shape);
         b.setOnClickListener(v -> onClick.run());
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
-        p.setMargins(2, 2, 2, 2);
+        p.setMargins(3, 3, 3, 3);
         b.setLayoutParams(p);
         return b;
     }
 
     private void onMiniKey(String key) {
-        if (modeSearch) {
-            if (key.equals("⌫")) {
-                String t = searchInput.getText().toString();
-                if (t.length() > 0) {
-                    searchInput.setText(t.substring(0, t.length() - 1));
-                    searchInput.setSelection(searchInput.getText().length());
-                }
-            } else {
-                searchInput.append(key);
-            }
+        if (key.equals("⌫")) {
+            backspaceInPage();
         } else {
-            if (key.equals("⌫")) {
-                backspaceInPage();
-            } else {
-                injectIntoPage(key);
-            }
-            searchInput.setText(searchInput.getText().toString() + key);
+            injectIntoPage(key);
         }
     }
 
+    // ===== JS-инъекции в активное поле страницы =====
     private void injectIntoPage(String text) {
         String js =
             "(function(){" +
             "var el=document.activeElement;" +
-            "if(!el){return 'no';}" +
+            "if(!el)return;" +
             "if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){" +
             "el.value=el.value+" + jsString(text) + ";" +
-            "el.dispatchEvent(new Event('input',{bubbles:true}));" +
-            "return 'ok';}" +
-            "if(el.isContentEditable){" +
+            "el.dispatchEvent(new Event('input',{bubbles:true}));}" +
+            "else if(el.isContentEditable){" +
             "el.textContent=el.textContent+" + jsString(text) + ";" +
-            "el.dispatchEvent(new Event('input',{bubbles:true}));" +
-            "return 'ok';}" +
-            "return 'no';})()";
+            "el.dispatchEvent(new Event('input',{bubbles:true}));}" +
+            "})()";
         webView.evaluateJavascript(js, null);
     }
 
@@ -324,42 +232,41 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         String js =
             "(function(){" +
             "var el=document.activeElement;" +
-            "if(!el){return 'no';}" +
+            "if(!el)return;" +
             "if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){" +
             "el.value=el.value.slice(0,-1);" +
-            "el.dispatchEvent(new Event('input',{bubbles:true}));" +
-            "return 'ok';}" +
-            "if(el.isContentEditable){" +
+            "el.dispatchEvent(new Event('input',{bubbles:true}));}" +
+            "else if(el.isContentEditable){" +
             "el.textContent=el.textContent.slice(0,-1);" +
-            "el.dispatchEvent(new Event('input',{bubbles:true}));" +
-            "return 'ok';}" +
-            "return 'no';})()";
+            "el.dispatchEvent(new Event('input',{bubbles:true}));}" +
+            "})()";
         webView.evaluateJavascript(js, null);
-        String t = searchInput.getText().toString();
-        if (t.length() > 0) {
-            searchInput.setText(t.substring(0, t.length() - 1));
-        }
     }
 
-    private void doSearch() {
-        if (!modeSearch) return;
-        String q = searchInput.getText().toString().trim();
-        if (q.isEmpty()) return;
-        String url = webView.getUrl();
-        if (url != null && url.contains("youtube")) {
-            String js =
-                "(function(){" +
-                "var i=document.querySelector('input[name=search_query]')" +
-                "||document.querySelector('input[name=q]')" +
-                "||document.querySelector('input[type=search]');" +
-                "if(i){i.value=" + jsString(q) + ";" +
-                "var f=i.form;if(f){f.submit();return 'ok';}}" +
-                "return 'noinput';})()";
-            webView.evaluateJavascript(js, null);
-        } else {
-            webView.loadUrl("https://www.google.com/search?q=" + q);
-        }
-        searchInput.setText("");
+    private void clearActiveField() {
+        String js =
+            "(function(){" +
+            "var el=document.activeElement;" +
+            "if(!el)return;" +
+            "if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){" +
+            "el.value='';" +
+            "el.dispatchEvent(new Event('input',{bubbles:true}));}" +
+            "else if(el.isContentEditable){" +
+            "el.textContent='';" +
+            "el.dispatchEvent(new Event('input',{bubbles:true}));}" +
+            "})()";
+        webView.evaluateJavascript(js, null);
+    }
+
+    private void sendEnter() {
+        String js =
+            "(function(){" +
+            "var el=document.activeElement;" +
+            "if(!el)return;" +
+            "['keydown','keypress','keyup'].forEach(function(t){" +
+            "el.dispatchEvent(new KeyboardEvent(t,{key:'Enter',keyCode:13,which:13,bubbles:true}));" +
+            "});})()";
+        webView.evaluateJavascript(js, null);
     }
 
     private String jsString(String s) {
@@ -368,33 +275,23 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                       .replace("\n", "\\n") + "'";
     }
 
-    private void openEmbeddedUrl(String url) {
-        collapsed = false;
+    // ===== Открыть/закрыть встроенный браузер =====
+    private void openWeb(String url) {
         mainKeyboardLayout.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
-        searchBar.setVisibility(View.VISIBLE);
-        rootLayout.setVisibility(View.VISIBLE);
-        floatBtn.setVisibility(View.VISIBLE);
-        floatBtn.setText("▼");
+        miniKeyboard.setVisibility(View.VISIBLE);
         webView.loadUrl(url);
-        if (modeSearch) toggleMode();
-        searchInput.setText("");
     }
 
-    private void closeEmbeddedScreen() {
-        collapsed = false;
+    private void closeWeb() {
         webView.setVisibility(View.GONE);
-        searchBar.setVisibility(View.GONE);
+        miniKeyboard.setVisibility(View.GONE);
         mainKeyboardLayout.setVisibility(View.VISIBLE);
-        rootLayout.setVisibility(View.VISIBLE);
-        floatBtn.setVisibility(View.VISIBLE);
-        floatBtn.setText("▼");
         webView.stopLoading();
         webView.loadUrl("about:blank");
-        searchInput.setText("");
     }
 
-    // ===== Основная клавиатура =====
+    // ===== Основная клавиатура (для чата) =====
     private void buildKeyboard() {
         if (keyboardKeysLayout == null) return;
         keyboardKeysLayout.removeAllViews();
@@ -402,9 +299,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         String[] numRow = {"1","2","3","4","5","6","7","8","9","0"};
         LinearLayout row0 = new LinearLayout(this);
         row0.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : numRow) addKeyButton(row0, key, v -> typeText(key), 1.0f, "#252525");
+        for (String key : numRow) addKeyButton(row0, key, v -> typeText(key), 1.0f, "#1E1E1E");
         keyboardKeysLayout.addView(row0, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 100));
+            ViewGroup.LayoutParams.MATCH_PARENT, 105));
 
         String[] row1Keys = isRussian ?
             new String[]{"й","ц","у","к","е","н","г","ш","щ","з","х","ъ"} :
@@ -418,25 +315,25 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : row1Keys) addKeyButton(row1, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
+        for (String key : row1Keys) addKeyButton(row1, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
         keyboardKeysLayout.addView(row1, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 115));
+            ViewGroup.LayoutParams.MATCH_PARENT, 125));
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : row2Keys) addKeyButton(row2, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
+        for (String key : row2Keys) addKeyButton(row2, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
         keyboardKeysLayout.addView(row2, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 115));
+            ViewGroup.LayoutParams.MATCH_PARENT, 125));
 
         LinearLayout row3 = new LinearLayout(this);
         row3.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : row3Keys) addKeyButton(row3, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
+        for (String key : row3Keys) addKeyButton(row3, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
         addKeyButton(row3, "⌫", v -> {
             InputConnection ic = getCurrentInputConnection();
             if (ic != null) ic.deleteSurroundingText(1, 0);
-        }, 1.5f, "#3D2525");
+        }, 1.5f, "#4A2525");
         keyboardKeysLayout.addView(row3, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 115));
+            ViewGroup.LayoutParams.MATCH_PARENT, 125));
 
         LinearLayout row4 = new LinearLayout(this);
         row4.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -444,27 +341,28 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         addKeyButton(row4, langText, v -> {
             isRussian = !isRussian;
             buildKeyboard();
-        }, 2.0f, "#1F1F1F");
-        addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 5.0f, "#2C2C2C");
+        }, 2.0f, "#1A1A1A");
+        addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 5.0f, "#2A2A2A");
         keyboardKeysLayout.addView(row4, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 115));
+            ViewGroup.LayoutParams.MATCH_PARENT, 125));
     }
 
     private void addKeyButton(LinearLayout parent, String text, View.OnClickListener listener, float weight, String colorHex) {
         Button btn = new Button(this);
         btn.setText(text);
         btn.setTextColor(Color.WHITE);
-        btn.setTextSize(18);
+        btn.setTextSize(20);
         btn.setPadding(0, 0, 0, 0);
         btn.setGravity(Gravity.CENTER);
+        btn.setAllCaps(false);
         btn.setOnClickListener(listener);
         GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(10);
+        shape.setCornerRadius(14);
         shape.setColor(Color.parseColor(colorHex));
         btn.setBackground(shape);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
-        params.setMargins(2, 3, 2, 3);
+        params.setMargins(3, 4, 3, 4);
         btn.setLayoutParams(params);
         parent.addView(btn);
     }
@@ -473,17 +371,18 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         Button btn = new Button(this);
         btn.setText(text);
         btn.setTextColor(Color.parseColor(colorHex));
-        btn.setTextSize(12);
+        btn.setTextSize(13);
         btn.setGravity(Gravity.CENTER);
         btn.setPadding(0, 0, 0, 0);
+        btn.setAllCaps(false);
         btn.setOnClickListener(listener);
         GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(10);
-        shape.setColor(Color.parseColor("#222222"));
+        shape.setCornerRadius(14);
+        shape.setColor(Color.parseColor("#202020"));
         btn.setBackground(shape);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
-        params.setMargins(3, 3, 3, 3);
+        params.setMargins(5, 5, 5, 5);
         btn.setLayoutParams(params);
         parent.addView(btn);
     }
