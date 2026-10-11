@@ -85,8 +85,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
         webView.setWebViewClient(new WebViewClient());
         webView.setBackgroundColor(Color.WHITE);
-        // Software-слой часто спасает WebView внутри IME
-        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         webView.setVisibility(View.GONE);
         contentArea.addView(webView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
