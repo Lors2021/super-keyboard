@@ -1,7 +1,17 @@
 package com.example.customkeyboard;
 
+import android.app.ActivityManager;
+import android.content.Context;
 import android.inputmethodservice.InputMethodService;
 import android.inputmethodservice.KeyboardView;
+import android.media.AudioAttributes;
+import android.media.AudioFormat;
+import android.media.AudioTrack;
+import android.net.TrafficStats;
+import android.os.BatteryManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
@@ -11,9 +21,17 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
+import android.widget.TextView;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.Locale;
+import java.util.Random;
 
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -22,6 +40,25 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private LinearLayout mainKeyboardLayout;
     private LinearLayout keyboardKeysLayout;
     private LinearLayout miniKeyboard;
+
+    private LinearLayout toolsPanel, monitorPanel, noisePanel;
+    private TextView tvCpu, tvRam, tvBattery, tvNet, tvUptime;
+    private Handler monitorHandler = new Handler(Looper.getMainLooper());
+    private long lastRx = 0, lastTx = 0, lastMonTime = 0;
+    private long prevCpuTotal = 0, prevCpuIdle = 0;
+
+    private AudioTrack audioTrack;
+    private Thread noiseThread;
+    private volatile boolean noisePlaying = false;
+    private volatile int noiseType = 0;
+    private volatile float noiseVolume = 0.6f;
+    private float pinkB0, pinkB1, pinkB2, pinkB3, pinkB4, pinkB5, pinkB6;
+    private float brownLast = 0;
+    private float wavePhase = 0;
+    private float rainEnv = 0;
+    private final Random rnd = new Random();
+    private Button playBtn;
+    private TextView noiseStatus;
 
     private boolean isRussian = true;
     private boolean miniRussian = false;
@@ -45,7 +82,8 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         addMenuButton(menuLayout, "YouTube",  v -> openWeb("https://m.youtube.com"),     "#FF5555");
         addMenuButton(menuLayout, "Telegram", v -> openWeb("https://web.telegram.org"), "#229ED9");
         addMenuButton(menuLayout, "Google",   v -> openWeb("https://www.google.com"),   "#FBBC05");
-        addMenuButton(menuLayout, "✕",        v -> closeWeb(),                          "#FF4444");
+        addMenuButton(menuLayout, "HACK",     v -> openTools(),                          "#44DD88");
+        addMenuButton(menuLayout, "✕",        v -> closeAll(),                          "#FF4444");
 
         rootLayout.addView(menuLayout, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 100));
@@ -64,7 +102,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         int screenH = getResources().getDisplayMetrics().heightPixels;
-        int webH = (int)(screenH * 0.60);
+        int panelH = (int)(screenH * 0.60);
 
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
@@ -77,7 +115,22 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         webView.setBackgroundColor(Color.WHITE);
         webView.setVisibility(View.GONE);
         contentArea.addView(webView, new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, webH));
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
+        toolsPanel = buildToolsPanel();
+        toolsPanel.setVisibility(View.GONE);
+        contentArea.addView(toolsPanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
+        monitorPanel = buildMonitorPanel();
+        monitorPanel.setVisibility(View.GONE);
+        contentArea.addView(monitorPanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
+        noisePanel = buildNoisePanel();
+        noisePanel.setVisibility(View.GONE);
+        contentArea.addView(noisePanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
 
         rootLayout.addView(contentArea, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -94,7 +147,542 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return keyboardContainer;
     }
 
-    // ===== Мини-клавиатура =====
+    // ===== Tools (меню хака) =====
+    private LinearLayout buildToolsPanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        p.setPadding(20, 20, 20, 20);
+
+        TextView title = new TextView(this);
+        title.setText("◤ TOOLS ◢");
+        title.setTextColor(Color.parseColor("#44DD88"));
+        title.setTextSize(18);
+        title.setTypeface(Typeface.MONOSPACE);
+        title.setPadding(0, 0, 0, 24);
+        p.addView(title);
+
+        p.addView(makeToolTile("📊  СИСТЕМНЫЙ МОНИТОР",
+                "CPU, RAM, батарея, сеть, uptime",
+                "#44DD88", v -> openMonitor()));
+
+        View sp = new View(this);
+        LinearLayout.LayoutParams spLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 14);
+        p.addView(sp, spLp);
+
+        p.addView(makeToolTile("🌊  ГЕНЕРАТОР ШУМА",
+                "Белый / розовый / коричневый / дождь / волны",
+                "#44AAFF", v -> openNoise()));
+
+        return p;
+    }
+
+    private LinearLayout makeToolTile(String title, String desc, String color, View.OnClickListener l) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setPadding(24, 20, 24, 20);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(16);
+        bg.setColor(Color.parseColor("#151515"));
+        bg.setStroke(2, Color.parseColor("#2A3A2A"));
+        tile.setBackground(bg);
+        tile.setOnClickListener(l);
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.parseColor(color));
+        t.setTextSize(15);
+        t.setTypeface(Typeface.MONOSPACE);
+        tile.addView(t);
+
+        TextView d = new TextView(this);
+        d.setText(desc);
+        d.setTextColor(Color.parseColor("#668866"));
+        d.setTextSize(11);
+        d.setPadding(0, 6, 0, 0);
+        tile.addView(d);
+
+        return tile;
+    }
+
+    private void openTools() {
+        hideAll();
+        toolsPanel.setVisibility(View.VISIBLE);
+    }
+
+    // ===== System Monitor =====
+    private LinearLayout buildMonitorPanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        p.setPadding(20, 16, 20, 16);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("◤ SYSTEM MONITOR ◢");
+        title.setTextColor(Color.parseColor("#44DD88"));
+        title.setTextSize(14);
+        title.setTypeface(Typeface.MONOSPACE);
+        title.setLayoutParams(new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(title);
+        top.addView(makeSmallBtn("←", "#44DD88", v -> openTools()));
+        p.addView(top, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        View sp = new View(this);
+        p.addView(sp, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 18));
+
+        tvUptime  = makeMonitorRow(p, "UPTIME ");
+        tvCpu     = makeMonitorRow(p, "CPU    ");
+        tvRam     = makeMonitorRow(p, "RAM    ");
+        tvBattery = makeMonitorRow(p, "BATTERY");
+        tvNet     = makeMonitorRow(p, "NET    ");
+
+        return p;
+    }
+
+    private TextView makeMonitorRow(LinearLayout parent, String label) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, 9, 0, 9);
+
+        TextView lbl = new TextView(this);
+        lbl.setText(label + " : ");
+        lbl.setTextColor(Color.parseColor("#556655"));
+        lbl.setTextSize(13);
+        lbl.setTypeface(Typeface.MONOSPACE);
+
+        TextView val = new TextView(this);
+        val.setText("...");
+        val.setTextColor(Color.parseColor("#44DD88"));
+        val.setTextSize(13);
+        val.setTypeface(Typeface.MONOSPACE);
+        val.setLayoutParams(new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        row.addView(lbl);
+        row.addView(val);
+        parent.addView(row);
+
+        View div = new View(this);
+        div.setBackgroundColor(Color.parseColor("#152015"));
+        parent.addView(div, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 1));
+
+        return val;
+    }
+
+    private Button makeSmallBtn(String text, String color, View.OnClickListener l) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextColor(Color.parseColor(color));
+        b.setTextSize(16);
+        b.setPadding(0, 0, 0, 0);
+        b.setAllCaps(false);
+        GradientDrawable s = new GradientDrawable();
+        s.setCornerRadius(10);
+        s.setColor(Color.parseColor("#152515"));
+        s.setStroke(2, Color.parseColor("#2A4A2A"));
+        b.setBackground(s);
+        b.setOnClickListener(l);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(70, 60);
+        b.setLayoutParams(p);
+        return b;
+    }
+
+    private void openMonitor() {
+        hideAll();
+        monitorPanel.setVisibility(View.VISIBLE);
+        lastRx = TrafficStats.getTotalRxBytes();
+        lastTx = TrafficStats.getTotalTxBytes();
+        lastMonTime = System.currentTimeMillis();
+        prevCpuTotal = 0;
+        prevCpuIdle = 0;
+        monitorHandler.removeCallbacksAndMessages(null);
+        monitorHandler.post(monitorTick);
+    }
+
+    private Runnable monitorTick = new Runnable() {
+        @Override
+        public void run() {
+            if (monitorPanel.getVisibility() != View.VISIBLE) return;
+            updateMonitor();
+            monitorHandler.postDelayed(this, 1000);
+        }
+    };
+
+    private void updateMonitor() {
+        // UPTIME
+        long up = SystemClock.elapsedRealtime() / 1000;
+        long h = up / 3600, m = (up % 3600) / 60, s = up % 60;
+        tvUptime.setText(String.format(Locale.US, "%02d:%02d:%02d", h, m, s));
+
+        // CPU
+        int cpu = readCpuUsage();
+        tvCpu.setText(cpu >= 0 ? cpu + " %" : "n/a");
+
+        // RAM
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            long usedMb = (mi.totalMem - mi.availMem) / 1024 / 1024;
+            long totalMb = mi.totalMem / 1024 / 1024;
+            int pct = (int)(100 * usedMb / Math.max(1, totalMb));
+            tvRam.setText(usedMb + " / " + totalMb + " MB   (" + pct + "%)");
+        } catch (Exception e) {
+            tvRam.setText("n/a");
+        }
+
+        // BATTERY
+        try {
+            BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
+            int level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            tvBattery.setText(level + " %");
+        } catch (Exception e) {
+            tvBattery.setText("n/a");
+        }
+
+        // NET
+        long nowRx = TrafficStats.getTotalRxBytes();
+        long nowTx = TrafficStats.getTotalTxBytes();
+        long now = System.currentTimeMillis();
+        long dt = Math.max(1, now - lastMonTime);
+        long dRx = nowRx - lastRx;
+        long dTx = nowTx - lastTx;
+        double rxKbs = dRx * 1000.0 / dt / 1024.0;
+        double txKbs = dTx * 1000.0 / dt / 1024.0;
+        tvNet.setText(String.format(Locale.US, "↓ %.1f KB/s   ↑ %.1f KB/s", rxKbs, txKbs));
+        lastRx = nowRx;
+        lastTx = nowTx;
+        lastMonTime = now;
+    }
+
+    private int readCpuUsage() {
+        try {
+            BufferedReader r = new BufferedReader(new FileReader("/proc/stat"));
+            String line = r.readLine();
+            r.close();
+            if (line == null) return -1;
+            String[] p = line.trim().split("\\s+");
+            if (p.length < 5) return -1;
+            long idle = Long.parseLong(p[4]);
+            long total = 0;
+            for (int i = 1; i < p.length; i++) {
+                try { total += Long.parseLong(p[i]); } catch (Exception ignored) {}
+            }
+            if (prevCpuTotal == 0) {
+                prevCpuTotal = total;
+                prevCpuIdle = idle;
+                return -1;
+            }
+            long dTotal = total - prevCpuTotal;
+            long dIdle = idle - prevCpuIdle;
+            prevCpuTotal = total;
+            prevCpuIdle = idle;
+            if (dTotal <= 0) return -1;
+            return (int)(100 * (dTotal - dIdle) / dTotal);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    // ===== Noise generator =====
+    private LinearLayout buildNoisePanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        p.setPadding(20, 16, 20, 16);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("◤ NOISE GEN ◢");
+        title.setTextColor(Color.parseColor("#44AAFF"));
+        title.setTextSize(14);
+        title.setTypeface(Typeface.MONOSPACE);
+        title.setLayoutParams(new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(title);
+        top.addView(makeSmallBtn("←", "#44AAFF", v -> openTools()));
+        p.addView(top);
+
+        noiseStatus = new TextView(this);
+        noiseStatus.setText("● STOPPED");
+        noiseStatus.setTextColor(Color.parseColor("#666666"));
+        noiseStatus.setTextSize(13);
+        noiseStatus.setTypeface(Typeface.MONOSPACE);
+        noiseStatus.setPadding(0, 24, 0, 16);
+        p.addView(noiseStatus);
+
+        // Кнопки типов
+        String[] types = {"БЕЛЫЙ", "РОЗОВЫЙ", "КОРИЧН.", "ДОЖДЬ", "ВОЛНЫ"};
+        final Button[] typeBtns = new Button[types.length];
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < types.length; i++) {
+            final int idx = i;
+            Button b = new Button(this);
+            b.setText(types[i]);
+            b.setTextSize(10);
+            b.setTextColor(Color.WHITE);
+            b.setAllCaps(false);
+            b.setPadding(0, 0, 0, 0);
+            GradientDrawable s = new GradientDrawable();
+            s.setCornerRadius(10);
+            s.setColor(Color.parseColor("#152535"));
+            s.setStroke(2, Color.parseColor("#2A4A6A"));
+            b.setBackground(s);
+            b.setOnClickListener(v -> {
+                noiseType = idx;
+                for (int j = 0; j < typeBtns.length; j++) {
+                    GradientDrawable g = new GradientDrawable();
+                    g.setCornerRadius(10);
+                    g.setColor(Color.parseColor(j == idx ? "#2A5A8A" : "#152535"));
+                    g.setStroke(2, Color.parseColor("#2A4A6A"));
+                    typeBtns[j].setBackground(g);
+                }
+            });
+            typeBtns[i] = b;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, 76, 1f);
+            lp.setMargins(4, 4, 4, 4);
+            b.setLayoutParams(lp);
+            if (i < 3) row1.addView(b); else row2.addView(b);
+        }
+        p.addView(row1);
+        p.addView(row2);
+
+        // Громкость
+        TextView volLabel = new TextView(this);
+        volLabel.setText("ГРОМКОСТЬ");
+        volLabel.setTextColor(Color.parseColor("#556655"));
+        volLabel.setTextSize(11);
+        volLabel.setTypeface(Typeface.MONOSPACE);
+        volLabel.setPadding(4, 20, 0, 6);
+        p.addView(volLabel);
+
+        SeekBar sb = new SeekBar(this);
+        sb.setMax(100);
+        sb.setProgress(60);
+        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int v, boolean f) {
+                noiseVolume = v / 100f;
+            }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        p.addView(sb);
+
+        // Play/Stop
+        playBtn = new Button(this);
+        playBtn.setText("▶  ПУСК");
+        playBtn.setTextColor(Color.WHITE);
+        playBtn.setTextSize(15);
+        playBtn.setAllCaps(false);
+        GradientDrawable pb = new GradientDrawable();
+        pb.setCornerRadius(14);
+        pb.setColor(Color.parseColor("#2A5A8A"));
+        playBtn.setBackground(pb);
+        playBtn.setOnClickListener(v -> {
+            if (noisePlaying) stopNoise();
+            else startNoise();
+        });
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 90);
+        plp.setMargins(0, 24, 0, 0);
+        playBtn.setLayoutParams(plp);
+        p.addView(playBtn);
+
+        // Пометить первый как выбранный
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(10);
+        g.setColor(Color.parseColor("#2A5A8A"));
+        g.setStroke(2, Color.parseColor("#2A4A6A"));
+        typeBtns[0].setBackground(g);
+
+        return p;
+    }
+
+    private void openNoise() {
+        hideAll();
+        noisePanel.setVisibility(View.VISIBLE);
+    }
+
+    private void startNoise() {
+        if (noisePlaying) return;
+        try {
+            int sr = 44100;
+            int minBuf = AudioTrack.getMinBufferSize(sr,
+                    AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
+            if (minBuf <= 0) minBuf = 4096;
+            audioTrack = new AudioTrack.Builder()
+                .setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build())
+                .setAudioFormat(new AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sr)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build())
+                .setBufferSizeInBytes(minBuf * 2)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build();
+            audioTrack.play();
+            noisePlaying = true;
+            playBtn.setText("■  СТОП");
+            GradientDrawable pb = new GradientDrawable();
+            pb.setCornerRadius(14);
+            pb.setColor(Color.parseColor("#8A2A2A"));
+            playBtn.setBackground(pb);
+            noiseStatus.setText("● PLAYING: " + noiseName(noiseType));
+            noiseStatus.setTextColor(Color.parseColor("#44AAFF"));
+
+            noiseThread = new Thread(this::noiseLoop);
+            noiseThread.start();
+        } catch (Exception e) {
+            noiseStatus.setText("● ERROR: " + e.getMessage());
+            noiseStatus.setTextColor(Color.parseColor("#FF4444"));
+            noisePlaying = false;
+        }
+    }
+
+    private String noiseName(int t) {
+        switch (t) {
+            case 0: return "БЕЛЫЙ";
+            case 1: return "РОЗОВЫЙ";
+            case 2: return "КОРИЧНЕВЫЙ";
+            case 3: return "ДОЖДЬ";
+            case 4: return "ВОЛНЫ";
+        }
+        return "?";
+    }
+
+    private void stopNoise() {
+        noisePlaying = false;
+        if (noiseThread != null) {
+            try { noiseThread.join(500); } catch (InterruptedException ignored) {}
+            noiseThread = null;
+        }
+        if (audioTrack != null) {
+            try { audioTrack.stop(); } catch (Exception ignored) {}
+            try { audioTrack.release(); } catch (Exception ignored) {}
+            audioTrack = null;
+        }
+        if (playBtn != null) {
+            playBtn.setText("▶  ПУСК");
+            GradientDrawable pb = new GradientDrawable();
+            pb.setCornerRadius(14);
+            pb.setColor(Color.parseColor("#2A5A8A"));
+            playBtn.setBackground(pb);
+        }
+        if (noiseStatus != null) {
+            noiseStatus.setText("● STOPPED");
+            noiseStatus.setTextColor(Color.parseColor("#666666"));
+        }
+    }
+
+    private void noiseLoop() {
+        short[] buf = new short[2048];
+        while (noisePlaying) {
+            for (int i = 0; i < buf.length; i++) {
+                float s = generateSample();
+                s *= noiseVolume;
+                if (s > 1f) s = 1f;
+                if (s < -1f) s = -1f;
+                buf[i] = (short)(s * 32767);
+            }
+            try {
+                audioTrack.write(buf, 0, buf.length);
+            } catch (Exception e) {
+                break;
+            }
+        }
+    }
+
+    private float generateSample() {
+        float white = rnd.nextFloat() * 2f - 1f;
+        switch (noiseType) {
+            case 0: return white;
+            case 1: { // pink (Paul Kellet)
+                pinkB0 = 0.99886f * pinkB0 + white * 0.0555179f;
+                pinkB1 = 0.99332f * pinkB1 + white * 0.0750759f;
+                pinkB2 = 0.96900f * pinkB2 + white * 0.1538520f;
+                pinkB3 = 0.86650f * pinkB3 + white * 0.3104856f;
+                pinkB4 = 0.55000f * pinkB4 + white * 0.5329522f;
+                pinkB5 = -0.7616f * pinkB5 - white * 0.0168980f;
+                float pink = pinkB0 + pinkB1 + pinkB2 + pinkB3 + pinkB4 + pinkB5 + pinkB6 + white * 0.5362f;
+                pinkB6 = white * 0.115926f;
+                return pink * 0.11f;
+            }
+            case 2: { // brown
+                brownLast = (brownLast + 0.02f * white) / 1.02f;
+                return brownLast * 3.5f;
+            }
+            case 3: { // rain
+                // фон — приглушённый белый
+                float bg = white * 0.15f;
+                // редкие капли с затуханием
+                if (rnd.nextFloat() < 0.0008f) rainEnv = 1.0f;
+                rainEnv *= 0.9985f;
+                float drip = rainEnv * (rnd.nextFloat() * 2f - 1f) * 0.7f;
+                return bg + drip;
+            }
+            case 4: { // waves
+                wavePhase += 0.00015f;
+                if (wavePhase > 6.2831853f) wavePhase -= 6.2831853f;
+                float mod = 0.35f + 0.65f * (float)((Math.sin(wavePhase) + 1) * 0.5);
+                return white * mod;
+            }
+        }
+        return white;
+    }
+
+    // ===== Web / панели =====
+    private void openWeb(String url) {
+        hideAll();
+        webView.setVisibility(View.VISIBLE);
+        miniKeyboard.setVisibility(View.VISIBLE);
+        webView.loadUrl(url);
+    }
+
+    private void hideAll() {
+        webView.setVisibility(View.GONE);
+        toolsPanel.setVisibility(View.GONE);
+        monitorPanel.setVisibility(View.GONE);
+        noisePanel.setVisibility(View.GONE);
+        miniKeyboard.setVisibility(View.GONE);
+        mainKeyboardLayout.setVisibility(View.GONE);
+        monitorHandler.removeCallbacksAndMessages(null);
+    }
+
+    private void closeAll() {
+        stopNoise();
+        hideAll();
+        mainKeyboardLayout.setVisibility(View.VISIBLE);
+        if (webView != null) {
+            webView.stopLoading();
+            webView.loadUrl("about:blank");
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        stopNoise();
+        monitorHandler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    // ===== Мини-клавиатура (для WebView) =====
     private LinearLayout buildMiniKeyboard() {
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.VERTICAL);
@@ -264,21 +852,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'";
     }
 
-    private void openWeb(String url) {
-        mainKeyboardLayout.setVisibility(View.GONE);
-        webView.setVisibility(View.VISIBLE);
-        miniKeyboard.setVisibility(View.VISIBLE);
-        webView.loadUrl(url);
-    }
-
-    private void closeWeb() {
-        webView.setVisibility(View.GONE);
-        miniKeyboard.setVisibility(View.GONE);
-        mainKeyboardLayout.setVisibility(View.VISIBLE);
-        webView.stopLoading();
-        webView.loadUrl("about:blank");
-    }
-
     // ===== Основная клавиатура =====
     private void buildKeyboard() {
         if (keyboardKeysLayout == null) return;
@@ -359,7 +932,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         Button btn = new Button(this);
         btn.setText(text);
         btn.setTextColor(Color.parseColor(colorHex));
-        btn.setTextSize(12);
+        btn.setTextSize(11);
         btn.setGravity(Gravity.CENTER);
         btn.setPadding(0, 0, 0, 0);
         btn.setAllCaps(false);
@@ -370,7 +943,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         btn.setBackground(shape);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
-        params.setMargins(5, 5, 5, 5);
+        params.setMargins(4, 5, 4, 5);
         btn.setLayoutParams(params);
         parent.addView(btn);
     }
