@@ -4,9 +4,6 @@ import android.inputmethodservice.InputMethodService;
 import android.inputmethodservice.KeyboardView;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
-import android.view.WindowManager;
-import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -42,7 +39,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.parseColor("#121212"));
 
-        // ===== Меню сверху =====
+        // ===== Меню сверху (ВСЕГДА видимое, с кнопкой выхода) =====
         LinearLayout menuLayout = new LinearLayout(this);
         menuLayout.setOrientation(LinearLayout.HORIZONTAL);
         menuLayout.setBackgroundColor(Color.parseColor("#1A1A1A"));
@@ -62,7 +59,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         root.addView(contentArea, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // Основная клавиатура (буквы + цифры)
+        // --- Основная клавиатура (буквы + цифры) ---
         mainKeyboardLayout = new LinearLayout(this);
         mainKeyboardLayout.setOrientation(LinearLayout.VERTICAL);
         keyboardKeysLayout = new LinearLayout(this);
@@ -73,22 +70,28 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         contentArea.addView(mainKeyboardLayout, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // WebView
+        // --- WebView ---
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setUserAgentString(
-            "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/120.0.0.0 Mobile Safari/537.36");
+            "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
         webView.setWebViewClient(new WebViewClient());
+        webView.setBackgroundColor(Color.WHITE);
+        // Software-слой часто спасает WebView внутри IME
+        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         webView.setVisibility(View.GONE);
         contentArea.addView(webView, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // Панель поиска — внизу, поверх всего
+        // ===== Панель поиска =====
         searchBar = buildSearchBar();
         searchBar.setVisibility(View.GONE);
 
@@ -108,7 +111,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         wrapper.setBackgroundColor(Color.parseColor("#1A1A1A"));
         wrapper.setPadding(4, 4, 4, 4);
 
-        // Строка 1: поле ввода + 🔍 + ⌨ (свернуть мини-клавиатуру)
         LinearLayout rowTop = new LinearLayout(this);
         rowTop.setOrientation(LinearLayout.HORIZONTAL);
 
@@ -120,6 +122,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         searchInput.setPadding(16, 8, 16, 8);
         searchInput.setInputType(InputType.TYPE_NULL);
         searchInput.setShowSoftInputOnFocus(false);
+        searchInput.setFocusable(false);
         searchInput.setFocusableInTouchMode(false);
         searchInput.setLayoutParams(new LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
@@ -156,7 +159,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         wrapper.addView(rowTop, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 70));
 
-        // Секция мини-клавиатуры (сворачиваемая)
         miniKeyboardSection = new LinearLayout(this);
         miniKeyboardSection.setOrientation(LinearLayout.VERTICAL);
         rebuildMiniKeyboard();
@@ -170,17 +172,13 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         if (miniKeyboardSection == null) return;
         miniKeyboardSection.removeAllViews();
 
-        String[][] rows = searchRussian
-            ? new String[][]{
-                {"й","ц","у","к","е","н","г","ш","щ","з","х","ъ"},
-                {"ф","ы","в","а","п","р","о","л","д","ж","э"},
-                {"я","ч","с","м","и","т","ь","б","ю"}
-              }
-            : new String[][]{
-                {"q","w","e","r","t","y","u","i","o","p"},
-                {"a","s","d","f","g","h","j","k","l"},
-                {"z","x","c","v","b","n","m"}
-              };
+        // Только латиница и цифры — для поиска в ютубе хватает
+        String[][] rows = new String[][]{
+            {"1","2","3","4","5","6","7","8","9","0"},
+            {"q","w","e","r","t","y","u","i","o","p"},
+            {"a","s","d","f","g","h","j","k","l"},
+            {"z","x","c","v","b","n","m"}
+        };
 
         for (String[] row : rows) {
             LinearLayout r = new LinearLayout(this);
@@ -190,31 +188,19 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 r.addView(makeMiniButton(k, 1f, () -> onMiniKey(k)));
             }
             miniKeyboardSection.addView(r, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 60));
+                ViewGroup.LayoutParams.MATCH_PARENT, 55));
         }
 
-        // Нижний ряд: язык / пробел / backspace / OK
         LinearLayout bottomRow = new LinearLayout(this);
         bottomRow.setOrientation(LinearLayout.HORIZONTAL);
         bottomRow.setGravity(Gravity.CENTER);
 
-        Button bLang = makeMiniButton(searchRussian ? "РУС" : "ENG", 2f, () -> {
-            searchRussian = !searchRussian;
-            rebuildMiniKeyboard();
-        });
-        bottomRow.addView(bLang);
-
-        Button bSpace = makeMiniButton("ПРОБЕЛ", 4f, () -> onMiniKey(" "));
-        bottomRow.addView(bSpace);
-
-        Button bBack = makeMiniButton("⌫", 1.5f, () -> onMiniKey("⌫"));
-        bottomRow.addView(bBack);
-
-        Button bOk = makeMiniButton("OK", 1.5f, () -> doSearch());
-        bottomRow.addView(bOk);
+        bottomRow.addView(makeMiniButton("ПРОБЕЛ", 4f, () -> onMiniKey(" ")));
+        bottomRow.addView(makeMiniButton("⌫", 1.5f, () -> onMiniKey("⌫")));
+        bottomRow.addView(makeMiniButton("OK", 1.5f, () -> doSearch()));
 
         miniKeyboardSection.addView(bottomRow, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 60));
+            ViewGroup.LayoutParams.MATCH_PARENT, 55));
     }
 
     private Button makeMiniButton(String text, float weight, Runnable onClick) {
@@ -249,7 +235,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         }
     }
 
-    // ===== Поиск =====
     private void doSearch() {
         String q = searchInput.getText().toString().trim();
         if (q.isEmpty()) return;
@@ -301,7 +286,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         if (keyboardKeysLayout == null) return;
         keyboardKeysLayout.removeAllViews();
 
-        // Ряд 0: цифры
         String[] numRow = {"1","2","3","4","5","6","7","8","9","0"};
         LinearLayout row0 = new LinearLayout(this);
         row0.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -309,7 +293,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             addKeyButton(row0, key, v -> typeText(key), 1.0f, "#252525");
         }
         keyboardKeysLayout.addView(row0, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 85));
+            ViewGroup.LayoutParams.MATCH_PARENT, 80));
 
         String[] row1Keys = isRussian ?
             new String[]{"й","ц","у","к","е","н","г","ш","щ","з","х","ъ"} :
@@ -325,13 +309,13 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         row1.setGravity(Gravity.CENTER_HORIZONTAL);
         for (String key : row1Keys) addKeyButton(row1, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
         keyboardKeysLayout.addView(row1, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 95));
+            ViewGroup.LayoutParams.MATCH_PARENT, 90));
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setGravity(Gravity.CENTER_HORIZONTAL);
         for (String key : row2Keys) addKeyButton(row2, key.toUpperCase(), v -> typeText(key), 1.0f, "#2C2C2C");
         keyboardKeysLayout.addView(row2, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 95));
+            ViewGroup.LayoutParams.MATCH_PARENT, 90));
 
         LinearLayout row3 = new LinearLayout(this);
         row3.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -341,7 +325,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             if (ic != null) ic.deleteSurroundingText(1, 0);
         }, 1.5f, "#3D2525");
         keyboardKeysLayout.addView(row3, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 95));
+            ViewGroup.LayoutParams.MATCH_PARENT, 90));
 
         LinearLayout row4 = new LinearLayout(this);
         row4.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -352,7 +336,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         }, 2.0f, "#1F1F1F");
         addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 5.0f, "#2C2C2C");
         keyboardKeysLayout.addView(row4, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 95));
+            ViewGroup.LayoutParams.MATCH_PARENT, 90));
     }
 
     private void addKeyButton(LinearLayout parent, String text, View.OnClickListener listener, float weight, String colorHex) {
@@ -398,26 +382,11 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         if (ic != null) ic.commitText(text, 1);
     }
 
-    // ===== Системные хуки =====
-
-    // Пытаемся растянуть окно IME на максимум
-    @Override
-    public void onStartInputView(EditorInfo info, boolean restarting) {
-        super.onStartInputView(info, restarting);
-        try {
-            Window w = getWindow().getWindow();
-            if (w != null) {
-                WindowManager.LayoutParams lp = w.getAttributes();
-                lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-                lp.gravity = Gravity.BOTTOM;
-                w.setAttributes(lp);
-            }
-        } catch (Exception ignored) {}
-    }
-
+    // ВАЖНО: false — иначе Android включает Extract Mode с кнопкой «Готово»
+    // и перекрывает WebView белым оверлеем.
     @Override
     public boolean onEvaluateFullscreenMode() {
-        return true;
+        return false;
     }
 
     @Override public void onPress(int primaryCode) {}
