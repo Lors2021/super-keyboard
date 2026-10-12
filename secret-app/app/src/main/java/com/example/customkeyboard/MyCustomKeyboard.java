@@ -854,9 +854,13 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             }
             sb.append("\n");
 
-            wm.startScan();
-            Thread.sleep(1500);
             List<ScanResult> results = wm.getScanResults();
+            if (results == null || results.isEmpty()) {
+                wm.startScan();
+                Thread.sleep(2500);
+                results = wm.getScanResults();
+            }
+
             if (results == null || results.isEmpty()) {
                 sb.append("=== NEARBY ===\n");
                 sb.append("no results. Нужно разрешение на локацию.\n");
