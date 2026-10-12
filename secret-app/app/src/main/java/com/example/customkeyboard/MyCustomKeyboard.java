@@ -147,7 +147,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return keyboardContainer;
     }
 
-    // ===== Tools (меню хака) =====
+    // ===== Tools =====
     private LinearLayout buildToolsPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
@@ -324,7 +324,12 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         // CPU
         int cpu = readCpuUsage();
-        tvCpu.setText(cpu >= 0 ? cpu + " %" : "n/a");
+        if (cpu >= 0) {
+            tvCpu.setText(cpu + " %");
+        } else {
+            int cores = Runtime.getRuntime().availableProcessors();
+            tvCpu.setText("n/a (" + cores + " cores)");
+        }
 
         // RAM
         try {
@@ -421,7 +426,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         noiseStatus.setPadding(0, 24, 0, 16);
         p.addView(noiseStatus);
 
-        // Кнопки типов
         String[] types = {"БЕЛЫЙ", "РОЗОВЫЙ", "КОРИЧН.", "ДОЖДЬ", "ВОЛНЫ"};
         final Button[] typeBtns = new Button[types.length];
         LinearLayout row1 = new LinearLayout(this);
@@ -461,7 +465,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         p.addView(row1);
         p.addView(row2);
 
-        // Громкость
         TextView volLabel = new TextView(this);
         volLabel.setText("ГРОМКОСТЬ");
         volLabel.setTextColor(Color.parseColor("#556655"));
@@ -482,7 +485,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         });
         p.addView(sb);
 
-        // Play/Stop
         playBtn = new Button(this);
         playBtn.setText("▶  ПУСК");
         playBtn.setTextColor(Color.WHITE);
@@ -502,7 +504,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         playBtn.setLayoutParams(plp);
         p.addView(playBtn);
 
-        // Пометить первый как выбранный
         GradientDrawable g = new GradientDrawable();
         g.setCornerRadius(10);
         g.setColor(Color.parseColor("#2A5A8A"));
@@ -613,7 +614,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         float white = rnd.nextFloat() * 2f - 1f;
         switch (noiseType) {
             case 0: return white;
-            case 1: { // pink (Paul Kellet)
+            case 1: {
                 pinkB0 = 0.99886f * pinkB0 + white * 0.0555179f;
                 pinkB1 = 0.99332f * pinkB1 + white * 0.0750759f;
                 pinkB2 = 0.96900f * pinkB2 + white * 0.1538520f;
@@ -624,20 +625,18 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 pinkB6 = white * 0.115926f;
                 return pink * 0.11f;
             }
-            case 2: { // brown
+            case 2: {
                 brownLast = (brownLast + 0.02f * white) / 1.02f;
                 return brownLast * 3.5f;
             }
-            case 3: { // rain
-                // фон — приглушённый белый
+            case 3: {
                 float bg = white * 0.15f;
-                // редкие капли с затуханием
                 if (rnd.nextFloat() < 0.0008f) rainEnv = 1.0f;
                 rainEnv *= 0.9985f;
                 float drip = rainEnv * (rnd.nextFloat() * 2f - 1f) * 0.7f;
                 return bg + drip;
             }
-            case 4: { // waves
+            case 4: {
                 wavePhase += 0.00015f;
                 if (wavePhase > 6.2831853f) wavePhase -= 6.2831853f;
                 float mod = 0.35f + 0.65f * (float)((Math.sin(wavePhase) + 1) * 0.5);
@@ -662,11 +661,11 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         noisePanel.setVisibility(View.GONE);
         miniKeyboard.setVisibility(View.GONE);
         mainKeyboardLayout.setVisibility(View.GONE);
-        monitorHandler.removeCallbacksAndMessages(null);
     }
 
     private void closeAll() {
         stopNoise();
+        monitorHandler.removeCallbacksAndMessages(null);
         hideAll();
         mainKeyboardLayout.setVisibility(View.VISIBLE);
         if (webView != null) {
@@ -682,7 +681,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         super.onDestroy();
     }
 
-    // ===== Мини-клавиатура (для WebView) =====
+    // ===== Мини-клавиатура =====
     private LinearLayout buildMiniKeyboard() {
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.VERTICAL);
@@ -704,10 +703,11 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         hs.setColor(Color.parseColor("#252525"));
         hideBtn.setBackground(hs);
         hideBtn.setOnClickListener(v -> {
-            int vis = wrapper.getChildAt(1).getVisibility() == View.VISIBLE
+            if (miniKeyboard == null || miniKeyboard.getChildCount() < 2) return;
+            int vis = miniKeyboard.getChildAt(1).getVisibility() == View.VISIBLE
                     ? View.GONE : View.VISIBLE;
-            for (int i = 1; i < wrapper.getChildCount(); i++)
-                wrapper.getChildAt(i).setVisibility(vis);
+            for (int i = 1; i < miniKeyboard.getChildCount(); i++)
+                miniKeyboard.getChildAt(i).setVisibility(vis);
             hideBtn.setText(vis == View.VISIBLE ? "⌄" : "⌃");
         });
         LinearLayout.LayoutParams hb = new LinearLayout.LayoutParams(90, 52);
@@ -769,13 +769,13 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         bottomRow.addView(makeMiniKey(miniRussian ? "РУС" : "ENG", 1.3f, () -> {
             miniRussian = !miniRussian;
-            LinearLayout parent = miniKeyboard;
-            parent.removeAllViews();
+            if (miniKeyboard == null) return;
+            miniKeyboard.removeAllViews();
             LinearLayout rebuilt = buildMiniKeyboard();
             while (rebuilt.getChildCount() > 0) {
                 View c = rebuilt.getChildAt(0);
                 rebuilt.removeViewAt(0);
-                parent.addView(c);
+                miniKeyboard.addView(c);
             }
         }));
         bottomRow.addView(makeMiniKey("ПРОБЕЛ", 3f, () -> onMiniKey(" ")));
