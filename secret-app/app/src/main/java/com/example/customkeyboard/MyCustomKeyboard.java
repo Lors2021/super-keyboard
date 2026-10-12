@@ -7,11 +7,18 @@ import android.inputmethodservice.KeyboardView;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.net.TrafficStats;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
@@ -21,6 +28,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.graphics.Color;
@@ -30,8 +38,15 @@ import android.view.Gravity;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.URL;
+import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
@@ -41,24 +56,32 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private LinearLayout keyboardKeysLayout;
     private LinearLayout miniKeyboard;
 
-    private LinearLayout toolsPanel, monitorPanel, noisePanel;
+    private LinearLayout toolsPanel, monitorPanel, noisePanel,
+                         networkPanel, wifiPanel, devicePanel;
+
+    // Monitor
     private TextView tvCpu, tvRam, tvBattery, tvNet, tvUptime;
     private Handler monitorHandler = new Handler(Looper.getMainLooper());
     private long lastRx = 0, lastTx = 0, lastMonTime = 0;
     private long prevCpuTotal = 0, prevCpuIdle = 0;
 
+    // Noise
     private AudioTrack audioTrack;
     private Thread noiseThread;
     private volatile boolean noisePlaying = false;
     private volatile int noiseType = 0;
     private volatile float noiseVolume = 0.6f;
     private float pinkB0, pinkB1, pinkB2, pinkB3, pinkB4, pinkB5, pinkB6;
-    private float brownLast = 0;
-    private float wavePhase = 0;
-    private float rainEnv = 0;
+    private float brownLast = 0, wavePhase = 0, rainEnv = 0;
     private final Random rnd = new Random();
     private Button playBtn;
     private TextView noiseStatus;
+
+    // Scroll-панели
+    private TextView networkText, wifiText, deviceText;
+    private ScrollView networkScroll, wifiScroll, deviceScroll;
+
+    private ExecutorService executor = Executors.newFixedThreadPool(8);
 
     private boolean isRussian = true;
     private boolean miniRussian = false;
@@ -73,7 +96,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setBackgroundColor(Color.parseColor("#0F0F0F"));
 
-        // ===== Меню =====
         LinearLayout menuLayout = new LinearLayout(this);
         menuLayout.setOrientation(LinearLayout.HORIZONTAL);
         menuLayout.setBackgroundColor(Color.parseColor("#151515"));
@@ -88,7 +110,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         rootLayout.addView(menuLayout, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 100));
 
-        // ===== Область контента =====
         FrameLayout contentArea = new FrameLayout(this);
 
         mainKeyboardLayout = new LinearLayout(this);
@@ -132,6 +153,27 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         contentArea.addView(noisePanel, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, panelH));
 
+        networkPanel = buildScrollPanel("◤ NETWORK ◢", "#44DD88", v -> openTools());
+        networkScroll = (ScrollView) networkPanel.getChildAt(1);
+        networkText = (TextView) networkScroll.getChildAt(0);
+        networkPanel.setVisibility(View.GONE);
+        contentArea.addView(networkPanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
+        wifiPanel = buildScrollPanel("◤ WIFI SCAN ◢", "#44AAFF", v -> openTools());
+        wifiScroll = (ScrollView) wifiPanel.getChildAt(1);
+        wifiText = (TextView) wifiScroll.getChildAt(0);
+        wifiPanel.setVisibility(View.GONE);
+        contentArea.addView(wifiPanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
+        devicePanel = buildScrollPanel("◤ DEVICE ◢", "#FFAA44", v -> openTools());
+        deviceScroll = (ScrollView) devicePanel.getChildAt(1);
+        deviceText = (TextView) deviceScroll.getChildAt(0);
+        devicePanel.setVisibility(View.GONE);
+        contentArea.addView(devicePanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
         rootLayout.addView(contentArea, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -146,8 +188,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         buildKeyboard();
         return keyboardContainer;
     }
-
-    // ===== Tools =====
+        // ===== Tools =====
     private LinearLayout buildToolsPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
@@ -159,21 +200,19 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         title.setTextColor(Color.parseColor("#44DD88"));
         title.setTextSize(18);
         title.setTypeface(Typeface.MONOSPACE);
-        title.setPadding(0, 0, 0, 24);
+        title.setPadding(0, 0, 0, 18);
         p.addView(title);
 
-        p.addView(makeToolTile("📊  СИСТЕМНЫЙ МОНИТОР",
-                "CPU, RAM, батарея, сеть, uptime",
+        p.addView(makeToolTile("📊  SYSTEM MONITOR", "CPU, RAM, батарея, сеть, uptime",
                 "#44DD88", v -> openMonitor()));
-
-        View sp = new View(this);
-        LinearLayout.LayoutParams spLp = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 14);
-        p.addView(sp, spLp);
-
-        p.addView(makeToolTile("🌊  ГЕНЕРАТОР ШУМА",
-                "Белый / розовый / коричневый / дождь / волны",
+        p.addView(makeToolTile("🌊  ГЕНЕРАТОР ШУМА", "Белый / розовый / коричневый / дождь / волны",
                 "#44AAFF", v -> openNoise()));
+        p.addView(makeToolTile("📡  NETWORK", "Пинг, IP, GeoIP, DNS",
+                "#44DD88", v -> openNetwork()));
+        p.addView(makeToolTile("📶  WIFI SCAN", "Все сети вокруг",
+                "#44AAFF", v -> openWifi()));
+        p.addView(makeToolTile("📱  DEVICE", "Батарея и детали системы",
+                "#FFAA44", v -> openDevice()));
 
         return p;
     }
@@ -181,9 +220,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private LinearLayout makeToolTile(String title, String desc, String color, View.OnClickListener l) {
         LinearLayout tile = new LinearLayout(this);
         tile.setOrientation(LinearLayout.VERTICAL);
-        tile.setPadding(24, 20, 24, 20);
+        tile.setPadding(20, 12, 20, 12);
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(16);
+        bg.setCornerRadius(14);
         bg.setColor(Color.parseColor("#151515"));
         bg.setStroke(2, Color.parseColor("#2A3A2A"));
         tile.setBackground(bg);
@@ -192,16 +231,21 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         TextView t = new TextView(this);
         t.setText(title);
         t.setTextColor(Color.parseColor(color));
-        t.setTextSize(15);
+        t.setTextSize(14);
         t.setTypeface(Typeface.MONOSPACE);
         tile.addView(t);
 
         TextView d = new TextView(this);
         d.setText(desc);
         d.setTextColor(Color.parseColor("#668866"));
-        d.setTextSize(11);
-        d.setPadding(0, 6, 0, 0);
+        d.setTextSize(10);
+        d.setPadding(0, 3, 0, 0);
         tile.addView(d);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 0, 10);
+        tile.setLayoutParams(lp);
 
         return tile;
     }
@@ -211,7 +255,62 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         toolsPanel.setVisibility(View.VISIBLE);
     }
 
-    // ===== System Monitor =====
+    // ===== Универсальная scroll-панель =====
+    private LinearLayout buildScrollPanel(String titleText, String color, View.OnClickListener back) {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        wrapper.setPadding(14, 14, 14, 14);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText(titleText);
+        title.setTextColor(Color.parseColor(color));
+        title.setTextSize(14);
+        title.setTypeface(Typeface.MONOSPACE);
+        title.setLayoutParams(new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(title);
+
+        Button backBtn = new Button(this);
+        backBtn.setText("←");
+        backBtn.setTextColor(Color.parseColor(color));
+        backBtn.setTextSize(16);
+        backBtn.setPadding(0, 0, 0, 0);
+        backBtn.setAllCaps(false);
+        GradientDrawable s = new GradientDrawable();
+        s.setCornerRadius(10);
+        s.setColor(Color.parseColor("#152515"));
+        s.setStroke(2, Color.parseColor("#2A4A2A"));
+        backBtn.setBackground(s);
+        backBtn.setOnClickListener(back);
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(70, 56);
+        backBtn.setLayoutParams(bp);
+        top.addView(backBtn);
+
+        wrapper.addView(top, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        scroll.setPadding(0, 12, 0, 0);
+
+        TextView text = new TextView(this);
+        text.setTextColor(Color.parseColor("#44DD88"));
+        text.setTextSize(12);
+        text.setTypeface(Typeface.MONOSPACE);
+        text.setText("...");
+        scroll.addView(text);
+
+        wrapper.addView(scroll, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        return wrapper;
+    }
+
+    // ===== SYSTEM MONITOR (как было) =====
     private LinearLayout buildMonitorPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
@@ -317,12 +416,10 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     };
 
     private void updateMonitor() {
-        // UPTIME
         long up = SystemClock.elapsedRealtime() / 1000;
         long h = up / 3600, m = (up % 3600) / 60, s = up % 60;
         tvUptime.setText(String.format(Locale.US, "%02d:%02d:%02d", h, m, s));
 
-        // CPU
         int cpu = readCpuUsage();
         if (cpu >= 0) {
             tvCpu.setText(cpu + " %");
@@ -331,7 +428,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             tvCpu.setText("n/a (" + cores + " cores)");
         }
 
-        // RAM
         try {
             ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
             ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
@@ -340,32 +436,22 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             long totalMb = mi.totalMem / 1024 / 1024;
             int pct = (int)(100 * usedMb / Math.max(1, totalMb));
             tvRam.setText(usedMb + " / " + totalMb + " MB   (" + pct + "%)");
-        } catch (Exception e) {
-            tvRam.setText("n/a");
-        }
+        } catch (Exception e) { tvRam.setText("n/a"); }
 
-        // BATTERY
         try {
             BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
             int level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
             tvBattery.setText(level + " %");
-        } catch (Exception e) {
-            tvBattery.setText("n/a");
-        }
+        } catch (Exception e) { tvBattery.setText("n/a"); }
 
-        // NET
         long nowRx = TrafficStats.getTotalRxBytes();
         long nowTx = TrafficStats.getTotalTxBytes();
         long now = System.currentTimeMillis();
         long dt = Math.max(1, now - lastMonTime);
-        long dRx = nowRx - lastRx;
-        long dTx = nowTx - lastTx;
-        double rxKbs = dRx * 1000.0 / dt / 1024.0;
-        double txKbs = dTx * 1000.0 / dt / 1024.0;
+        double rxKbs = (nowRx - lastRx) * 1000.0 / dt / 1024.0;
+        double txKbs = (nowTx - lastTx) * 1000.0 / dt / 1024.0;
         tvNet.setText(String.format(Locale.US, "↓ %.1f KB/s   ↑ %.1f KB/s", rxKbs, txKbs));
-        lastRx = nowRx;
-        lastTx = nowTx;
-        lastMonTime = now;
+        lastRx = nowRx; lastTx = nowTx; lastMonTime = now;
     }
 
     private int readCpuUsage() {
@@ -381,23 +467,15 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             for (int i = 1; i < p.length; i++) {
                 try { total += Long.parseLong(p[i]); } catch (Exception ignored) {}
             }
-            if (prevCpuTotal == 0) {
-                prevCpuTotal = total;
-                prevCpuIdle = idle;
-                return -1;
-            }
-            long dTotal = total - prevCpuTotal;
-            long dIdle = idle - prevCpuIdle;
-            prevCpuTotal = total;
-            prevCpuIdle = idle;
-            if (dTotal <= 0) return -1;
-            return (int)(100 * (dTotal - dIdle) / dTotal);
-        } catch (Exception e) {
-            return -1;
-        }
+            if (prevCpuTotal == 0) { prevCpuTotal = total; prevCpuIdle = idle; return -1; }
+            long dT = total - prevCpuTotal, dI = idle - prevCpuIdle;
+            prevCpuTotal = total; prevCpuIdle = idle;
+            if (dT <= 0) return -1;
+            return (int)(100 * (dT - dI) / dT);
+        } catch (Exception e) { return -1; }
     }
 
-    // ===== Noise generator =====
+    // ===== NOISE =====
     private LinearLayout buildNoisePanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
@@ -456,8 +534,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 }
             });
             typeBtns[i] = b;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                0, 76, 1f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 76, 1f);
             lp.setMargins(4, 4, 4, 4);
             b.setLayoutParams(lp);
             if (i < 3) row1.addView(b); else row2.addView(b);
@@ -477,9 +554,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         sb.setMax(100);
         sb.setProgress(60);
         sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int v, boolean f) {
-                noiseVolume = v / 100f;
-            }
+            public void onProgressChanged(SeekBar s, int v, boolean f) { noiseVolume = v / 100f; }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) {}
         });
@@ -495,8 +570,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         pb.setColor(Color.parseColor("#2A5A8A"));
         playBtn.setBackground(pb);
         playBtn.setOnClickListener(v -> {
-            if (noisePlaying) stopNoise();
-            else startNoise();
+            if (noisePlaying) stopNoise(); else startNoise();
         });
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 90);
@@ -528,13 +602,11 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             audioTrack = new AudioTrack.Builder()
                 .setAudioAttributes(new AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build())
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
                 .setAudioFormat(new AudioFormat.Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .setSampleRate(sr)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build())
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                 .setBufferSizeInBytes(minBuf * 2)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build();
@@ -547,7 +619,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             playBtn.setBackground(pb);
             noiseStatus.setText("● PLAYING: " + noiseName(noiseType));
             noiseStatus.setTextColor(Color.parseColor("#44AAFF"));
-
             noiseThread = new Thread(this::noiseLoop);
             noiseThread.start();
         } catch (Exception e) {
@@ -596,17 +667,11 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         short[] buf = new short[2048];
         while (noisePlaying) {
             for (int i = 0; i < buf.length; i++) {
-                float s = generateSample();
-                s *= noiseVolume;
-                if (s > 1f) s = 1f;
-                if (s < -1f) s = -1f;
+                float s = generateSample() * noiseVolume;
+                if (s > 1f) s = 1f; if (s < -1f) s = -1f;
                 buf[i] = (short)(s * 32767);
             }
-            try {
-                audioTrack.write(buf, 0, buf.length);
-            } catch (Exception e) {
-                break;
-            }
+            try { audioTrack.write(buf, 0, buf.length); } catch (Exception e) { break; }
         }
     }
 
@@ -621,29 +686,301 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 pinkB3 = 0.86650f * pinkB3 + white * 0.3104856f;
                 pinkB4 = 0.55000f * pinkB4 + white * 0.5329522f;
                 pinkB5 = -0.7616f * pinkB5 - white * 0.0168980f;
-                float pink = pinkB0 + pinkB1 + pinkB2 + pinkB3 + pinkB4 + pinkB5 + pinkB6 + white * 0.5362f;
+                float pink = pinkB0+pinkB1+pinkB2+pinkB3+pinkB4+pinkB5+pinkB6+white*0.5362f;
                 pinkB6 = white * 0.115926f;
                 return pink * 0.11f;
             }
-            case 2: {
-                brownLast = (brownLast + 0.02f * white) / 1.02f;
-                return brownLast * 3.5f;
-            }
+            case 2: { brownLast = (brownLast + 0.02f*white)/1.02f; return brownLast*3.5f; }
             case 3: {
                 float bg = white * 0.15f;
                 if (rnd.nextFloat() < 0.0008f) rainEnv = 1.0f;
                 rainEnv *= 0.9985f;
-                float drip = rainEnv * (rnd.nextFloat() * 2f - 1f) * 0.7f;
-                return bg + drip;
+                return bg + rainEnv * (rnd.nextFloat()*2f - 1f) * 0.7f;
             }
             case 4: {
                 wavePhase += 0.00015f;
                 if (wavePhase > 6.2831853f) wavePhase -= 6.2831853f;
-                float mod = 0.35f + 0.65f * (float)((Math.sin(wavePhase) + 1) * 0.5);
+                float mod = 0.35f + 0.65f * (float)((Math.sin(wavePhase)+1)*0.5);
                 return white * mod;
             }
         }
         return white;
+    }
+        // ===== NETWORK =====
+    private void openNetwork() {
+        hideAll();
+        networkPanel.setVisibility(View.VISIBLE);
+        networkText.setText("scanning...\n");
+        executor.execute(this::runNetworkScanAll);
+    }
+
+    private void runNetworkScanAll() {
+        StringBuilder sb = new StringBuilder();
+
+        // Локальный IP
+        sb.append("=== LOCAL ===\n");
+        String localIp = getLocalIp();
+        sb.append("local ip : ").append(localIp != null ? localIp : "n/a").append("\n");
+        sb.append("type     : ").append(getNetworkType()).append("\n\n");
+
+        // Публичный IP
+        sb.append("=== PUBLIC ===\n");
+        String pubIp = httpGet("https://api.ipify.org");
+        sb.append("public ip: ").append(pubIp != null ? pubIp.trim() : "failed").append("\n");
+
+        // GeoIP
+        if (pubIp != null) {
+            String geo = httpGet("http://ip-api.com/json/" + pubIp.trim() + "?fields=country,city,isp,org");
+            if (geo != null) {
+                sb.append("geo      : ").append(geo.trim()).append("\n");
+            }
+        }
+        sb.append("\n");
+
+        // DNS
+        sb.append("=== DNS ===\n");
+        appendDns(sb, "google.com");
+        appendDns(sb, "youtube.com");
+        appendDns(sb, "t.me");
+        sb.append("\n");
+
+        // Пинг
+        sb.append("=== PING ===\n");
+        appendPing(sb, "8.8.8.8");
+        appendPing(sb, "1.1.1.1");
+        appendPing(sb, "ya.ru");
+
+        sb.append("\n[✓] done");
+
+        final String result = sb.toString();
+        monitorHandler.post(() -> networkText.setText(result));
+    }
+
+    private void appendDns(StringBuilder sb, String host) {
+        try {
+            InetAddress[] all = InetAddress.getAllByName(host);
+            sb.append(host).append(": ");
+            for (int i = 0; i < all.length && i < 3; i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(all[i].getHostAddress());
+            }
+            sb.append("\n");
+        } catch (Exception e) {
+            sb.append(host).append(": failed\n");
+        }
+    }
+
+    private void appendPing(StringBuilder sb, String host) {
+        try {
+            InetAddress addr = InetAddress.getByName(host);
+            long t0 = System.currentTimeMillis();
+            boolean ok = addr.isReachable(2000);
+            long ms = System.currentTimeMillis() - t0;
+            sb.append(host).append(": ").append(ok ? ("OK " + ms + " ms") : "FAILED").append("\n");
+        } catch (Exception e) {
+            sb.append(host).append(": FAILED\n");
+        }
+    }
+
+    private String getLocalIp() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifs =
+                java.net.NetworkInterface.getNetworkInterfaces();
+            while (ifs.hasMoreElements()) {
+                java.net.NetworkInterface ni = ifs.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                java.util.Enumeration<InetAddress> addrs = ni.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress a = addrs.nextElement();
+                    if (!a.isLoopbackAddress() && a.getHostAddress().indexOf(':') < 0) {
+                        return a.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String getNetworkType() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            if (nc == null) return "none";
+            if (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "wifi";
+            if (nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "cellular";
+            if (nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "ethernet";
+        } catch (Exception ignored) {}
+        return "unknown";
+    }
+
+    private String httpGet(String urlStr) {
+        try {
+            URL url = new URL(urlStr);
+            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            c.setConnectTimeout(4000);
+            c.setReadTimeout(4000);
+            BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            r.close();
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ===== WIFI SCAN =====
+    private void openWifi() {
+        hideAll();
+        wifiPanel.setVisibility(View.VISIBLE);
+        wifiText.setText("scanning...\n");
+        executor.execute(this::runWifiScan);
+    }
+
+    private void runWifiScan() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext()
+                .getSystemService(Context.WIFI_SERVICE);
+
+            WifiInfo wi = wm.getConnectionInfo();
+            sb.append("=== CURRENT ===\n");
+            if (wi != null && wi.getSSID() != null) {
+                sb.append("ssid     : ").append(wi.getSSID().replace("\"", "")).append("\n");
+                sb.append("signal   : ").append(wi.getRssi()).append(" dBm\n");
+            } else {
+                sb.append("not connected\n");
+            }
+            sb.append("\n");
+
+            wm.startScan();
+            Thread.sleep(1500);
+            List<ScanResult> results = wm.getScanResults();
+            if (results == null || results.isEmpty()) {
+                sb.append("=== NEARBY ===\n");
+                sb.append("no results. Нужно разрешение на локацию.\n");
+            } else {
+                sb.append("=== NEARBY (").append(results.size()).append(") ===\n");
+                results.sort((a, b) -> Integer.compare(b.level, a.level));
+                for (ScanResult r : results) {
+                    sb.append(r.SSID.isEmpty() ? "<hidden>" : r.SSID).append("\n");
+                    sb.append("  ch=").append(freqToCh(r.frequency));
+                    sb.append("  ").append(r.level).append("dBm");
+                    sb.append("  ").append(security(r.capabilities));
+                    sb.append("\n");
+                }
+            }
+        } catch (Exception e) {
+            sb.append("error: ").append(e.getMessage()).append("\n");
+        }
+        sb.append("\n[✓] done");
+        final String result = sb.toString();
+        monitorHandler.post(() -> wifiText.setText(result));
+    }
+
+    private int freqToCh(int freq) {
+        if (freq == 2484) return 14;
+        if (freq >= 2412 && freq <= 2472) return (freq - 2407) / 5;
+        if (freq >= 5170 && freq <= 5825) return (freq - 5000) / 5;
+        return 0;
+    }
+
+    private String security(String caps) {
+        if (caps == null) return "OPEN";
+        if (caps.contains("WPA3")) return "WPA3";
+        if (caps.contains("WPA2")) return "WPA2";
+        if (caps.contains("WPA")) return "WPA";
+        if (caps.contains("WEP")) return "WEP";
+        return "OPEN";
+    }
+
+    // ===== DEVICE =====
+    private void openDevice() {
+        hideAll();
+        devicePanel.setVisibility(View.VISIBLE);
+        deviceText.setText(buildDeviceInfo());
+    }
+
+    private String buildDeviceInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== DEVICE ===\n");
+        sb.append("brand    : ").append(Build.MANUFACTURER).append("\n");
+        sb.append("model    : ").append(Build.MODEL).append("\n");
+        sb.append("device   : ").append(Build.DEVICE).append("\n");
+        sb.append("android  : ").append(Build.VERSION.RELEASE).append("\n");
+        sb.append("sdk      : ").append(Build.VERSION.SDK_INT).append("\n");
+        sb.append("kernel   : ").append(System.getProperty("os.version")).append("\n");
+        sb.append("arch     : ").append(System.getProperty("os.arch")).append("\n");
+        sb.append("cores    : ").append(Runtime.getRuntime().availableProcessors()).append("\n\n");
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        sb.append("=== SCREEN ===\n");
+        sb.append("size     : ").append(dm.widthPixels).append("x").append(dm.heightPixels).append("\n");
+        sb.append("density  : ").append(dm.densityDpi).append(" dpi\n\n");
+
+        try {
+            BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
+            int level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            long chargeCounter = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+
+            android.content.IntentFilter ifilter = new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED);
+            android.content.Intent batteryStatus = registerReceiver(null, ifilter);
+
+            int temp = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) : 0;
+            int volt = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) : 0;
+            int health = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_HEALTH, 0) : 0;
+            int status = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, 0) : 0;
+
+            sb.append("=== BATTERY ===\n");
+            sb.append("level    : ").append(level).append(" %\n");
+            sb.append("temp     : ").append(temp / 10.0).append(" °C\n");
+            sb.append("voltage  : ").append(volt).append(" mV\n");
+            sb.append("charge   : ").append(chargeCounter / 1000).append(" mAh\n");
+            sb.append("health   : ").append(healthStr(health)).append("\n");
+            sb.append("status   : ").append(statusStr(status)).append("\n\n");
+        } catch (Exception e) {
+            sb.append("battery: error\n");
+        }
+
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+        am.getMemoryInfo(mi);
+        sb.append("=== MEMORY ===\n");
+        sb.append("total    : ").append(mi.totalMem / 1024 / 1024).append(" MB\n");
+        sb.append("avail    : ").append(mi.availMem / 1024 / 1024).append(" MB\n");
+        sb.append("low      : ").append(mi.lowMemory ? "yes" : "no").append("\n\n");
+
+        java.io.File dataDir = getFilesDir();
+        long free = dataDir.getFreeSpace() / 1024 / 1024;
+        long total = dataDir.getTotalSpace() / 1024 / 1024;
+        sb.append("=== STORAGE ===\n");
+        sb.append("free     : ").append(free).append(" MB\n");
+        sb.append("total    : ").append(total).append(" MB\n");
+
+        return sb.toString();
+    }
+
+    private String healthStr(int h) {
+        switch (h) {
+            case BatteryManager.BATTERY_HEALTH_GOOD: return "GOOD";
+            case BatteryManager.BATTERY_HEALTH_OVERHEAT: return "OVERHEAT";
+            case BatteryManager.BATTERY_HEALTH_DEAD: return "DEAD";
+            case BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE: return "OVER_VOLTAGE";
+            case BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE: return "FAILURE";
+            case BatteryManager.BATTERY_HEALTH_COLD: return "COLD";
+        }
+        return "UNKNOWN";
+    }
+
+    private String statusStr(int s) {
+        switch (s) {
+            case BatteryManager.BATTERY_STATUS_CHARGING: return "CHARGING";
+            case BatteryManager.BATTERY_STATUS_DISCHARGING: return "DISCHARGING";
+            case BatteryManager.BATTERY_STATUS_FULL: return "FULL";
+            case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return "NOT CHARGING";
+        }
+        return "UNKNOWN";
     }
 
     // ===== Web / панели =====
@@ -659,6 +996,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         toolsPanel.setVisibility(View.GONE);
         monitorPanel.setVisibility(View.GONE);
         noisePanel.setVisibility(View.GONE);
+        networkPanel.setVisibility(View.GONE);
+        wifiPanel.setVisibility(View.GONE);
+        devicePanel.setVisibility(View.GONE);
         miniKeyboard.setVisibility(View.GONE);
         mainKeyboardLayout.setVisibility(View.GONE);
     }
@@ -678,6 +1018,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     public void onDestroy() {
         stopNoise();
         monitorHandler.removeCallbacksAndMessages(null);
+        if (executor != null) executor.shutdownNow();
         super.onDestroy();
     }
 
@@ -756,9 +1097,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             LinearLayout r = new LinearLayout(this);
             r.setOrientation(LinearLayout.HORIZONTAL);
             r.setGravity(Gravity.CENTER);
-            for (String k : row) {
-                r.addView(makeMiniKey(k, 1f, () -> onMiniKey(k)));
-            }
+            for (String k : row) r.addView(makeMiniKey(k, 1f, () -> onMiniKey(k)));
             wrapper.addView(r, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 66));
         }
@@ -899,10 +1238,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         LinearLayout row4 = new LinearLayout(this);
         row4.setGravity(Gravity.CENTER_HORIZONTAL);
         String langText = isRussian ? "РУС" : "ENG";
-        addKeyButton(row4, langText, v -> {
-            isRussian = !isRussian;
-            buildKeyboard();
-        }, 2.0f, "#1A1A1A");
+        addKeyButton(row4, langText, v -> { isRussian = !isRussian; buildKeyboard(); }, 2.0f, "#1A1A1A");
         addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 5.0f, "#2A2A2A");
         keyboardKeysLayout.addView(row4, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 125));
