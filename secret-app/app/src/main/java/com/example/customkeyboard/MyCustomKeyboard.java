@@ -1,7 +1,10 @@
 package com.example.customkeyboard;
 
 import android.app.ActivityManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
+import android.hardware.camera2.CameraManager;
 import android.inputmethodservice.InputMethodService;
 import android.inputmethodservice.KeyboardView;
 import android.media.AudioAttributes;
@@ -18,7 +21,9 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Base64;
 import android.util.DisplayMetrics;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputConnection;
@@ -26,6 +31,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -57,15 +63,14 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private LinearLayout miniKeyboard;
 
     private LinearLayout toolsPanel, monitorPanel, noisePanel,
-                         networkPanel, wifiPanel, devicePanel;
+                         networkPanel, wifiPanel, devicePanel,
+                         cryptoPanel, flashlightPanel;
 
-    // Monitor
     private TextView tvCpu, tvRam, tvBattery, tvNet, tvUptime;
     private Handler monitorHandler = new Handler(Looper.getMainLooper());
     private long lastRx = 0, lastTx = 0, lastMonTime = 0;
     private long prevCpuTotal = 0, prevCpuIdle = 0;
 
-    // Noise
     private AudioTrack audioTrack;
     private Thread noiseThread;
     private volatile boolean noisePlaying = false;
@@ -77,14 +82,27 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private Button playBtn;
     private TextView noiseStatus;
 
-    // Scroll-панели
     private TextView networkText, wifiText, deviceText;
     private ScrollView networkScroll, wifiScroll, deviceScroll;
+
+    // Crypto
+    private EditText cryptoInput;
+    private TextView cryptoOutput;
+
+    // Flashlight
+    private Button flashBtn, strobeBtn;
+    private TextView flashStatus;
+    private boolean flashOn = false;
+    private boolean strobeOn = false;
+    private Handler strobeHandler;
+    private CameraManager cameraManager;
+    private String cameraId;
 
     private ExecutorService executor = Executors.newFixedThreadPool(8);
 
     private boolean isRussian = true;
     private boolean miniRussian = false;
+    private boolean symbolsMode = false;
 
     @Override
     public View onCreateInputView() {
@@ -174,6 +192,16 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         contentArea.addView(devicePanel, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, panelH));
 
+        cryptoPanel = buildCryptoPanel();
+        cryptoPanel.setVisibility(View.GONE);
+        contentArea.addView(cryptoPanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
+        flashlightPanel = buildFlashlightPanel();
+        flashlightPanel.setVisibility(View.GONE);
+        contentArea.addView(flashlightPanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+
         rootLayout.addView(contentArea, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -188,7 +216,8 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         buildKeyboard();
         return keyboardContainer;
     }
-        // ===== Tools =====
+
+    // ===== Tools =====
     private LinearLayout buildToolsPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
@@ -209,10 +238,21 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 "#44AAFF", v -> openNoise()));
         p.addView(makeToolTile("📡  NETWORK", "Пинг, IP, GeoIP, DNS",
                 "#44DD88", v -> openNetwork()));
-        p.addView(makeToolTile("📶  WIFI SCAN", "Все сети вокруг",
+        p.addView(makeToolTile("📶  WIFI SCAN", "Все сети вокруг + MAC",
                 "#44AAFF", v -> openWifi()));
         p.addView(makeToolTile("📱  DEVICE", "Батарея и детали системы",
                 "#FFAA44", v -> openDevice()));
+        p.addView(makeToolTile("🔐  ШИФРОВАЛЬЩИК", "Base64 / ROT13 / XOR",
+                "#AA88FF", v -> openCrypto()));
+        p.addView(makeToolTile("🔦  ФОНАРИК", "Вкл/выкл + стробоскоп",
+                "#FFDD44", v -> openFlashlight()));
+        p.addView(makeToolTile("⚙️  НАСТРОЙКИ СЕТИ", "Открыть настройки Wi-Fi и интернета",
+                "#FF9999", v -> {
+                    try {
+                        startActivity(new android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+                    } catch (Exception e) {}
+                }));
 
         return p;
     }
@@ -246,7 +286,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, 0, 0, 10);
         tile.setLayoutParams(lp);
-
         return tile;
     }
 
@@ -255,7 +294,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         toolsPanel.setVisibility(View.VISIBLE);
     }
 
-    // ===== Универсальная scroll-панель =====
+    // ===== Scroll-панель =====
     private LinearLayout buildScrollPanel(String titleText, String color, View.OnClickListener back) {
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.VERTICAL);
@@ -270,8 +309,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         title.setTextColor(Color.parseColor(color));
         title.setTextSize(14);
         title.setTypeface(Typeface.MONOSPACE);
-        title.setLayoutParams(new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         top.addView(title);
 
         Button backBtn = new Button(this);
@@ -286,8 +324,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         s.setStroke(2, Color.parseColor("#2A4A2A"));
         backBtn.setBackground(s);
         backBtn.setOnClickListener(back);
-        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(70, 56);
-        backBtn.setLayoutParams(bp);
+        backBtn.setLayoutParams(new LinearLayout.LayoutParams(70, 56));
         top.addView(backBtn);
 
         wrapper.addView(top, new LinearLayout.LayoutParams(
@@ -306,11 +343,10 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         wrapper.addView(scroll, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
         return wrapper;
     }
 
-    // ===== SYSTEM MONITOR (как было) =====
+    // ===== SYSTEM MONITOR =====
     private LinearLayout buildMonitorPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
@@ -325,23 +361,20 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         title.setTextColor(Color.parseColor("#44DD88"));
         title.setTextSize(14);
         title.setTypeface(Typeface.MONOSPACE);
-        title.setLayoutParams(new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         top.addView(title);
         top.addView(makeSmallBtn("←", "#44DD88", v -> openTools()));
         p.addView(top, new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         View sp = new View(this);
-        p.addView(sp, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 18));
+        p.addView(sp, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 18));
 
         tvUptime  = makeMonitorRow(p, "UPTIME ");
         tvCpu     = makeMonitorRow(p, "CPU    ");
         tvRam     = makeMonitorRow(p, "RAM    ");
         tvBattery = makeMonitorRow(p, "BATTERY");
         tvNet     = makeMonitorRow(p, "NET    ");
-
         return p;
     }
 
@@ -361,8 +394,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         val.setTextColor(Color.parseColor("#44DD88"));
         val.setTextSize(13);
         val.setTypeface(Typeface.MONOSPACE);
-        val.setLayoutParams(new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        val.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         row.addView(lbl);
         row.addView(val);
@@ -370,9 +402,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         View div = new View(this);
         div.setBackgroundColor(Color.parseColor("#152015"));
-        parent.addView(div, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 1));
-
+        parent.addView(div, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1));
         return val;
     }
 
@@ -389,8 +419,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         s.setStroke(2, Color.parseColor("#2A4A2A"));
         b.setBackground(s);
         b.setOnClickListener(l);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(70, 60);
-        b.setLayoutParams(p);
+        b.setLayoutParams(new LinearLayout.LayoutParams(70, 60));
         return b;
     }
 
@@ -421,12 +450,8 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         tvUptime.setText(String.format(Locale.US, "%02d:%02d:%02d", h, m, s));
 
         int cpu = readCpuUsage();
-        if (cpu >= 0) {
-            tvCpu.setText(cpu + " %");
-        } else {
-            int cores = Runtime.getRuntime().availableProcessors();
-            tvCpu.setText("n/a (" + cores + " cores)");
-        }
+        tvCpu.setText(cpu >= 0 ? (cpu + " %") :
+            ("n/a (" + Runtime.getRuntime().availableProcessors() + " cores)"));
 
         try {
             ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
@@ -440,8 +465,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         try {
             BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
-            int level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-            tvBattery.setText(level + " %");
+            tvBattery.setText(bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) + " %");
         } catch (Exception e) { tvBattery.setText("n/a"); }
 
         long nowRx = TrafficStats.getTotalRxBytes();
@@ -490,8 +514,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         title.setTextColor(Color.parseColor("#44AAFF"));
         title.setTextSize(14);
         title.setTypeface(Typeface.MONOSPACE);
-        title.setLayoutParams(new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         top.addView(title);
         top.addView(makeSmallBtn("←", "#44AAFF", v -> openTools()));
         p.addView(top);
@@ -506,10 +529,8 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         String[] types = {"БЕЛЫЙ", "РОЗОВЫЙ", "КОРИЧН.", "ДОЖДЬ", "ВОЛНЫ"};
         final Button[] typeBtns = new Button[types.length];
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout row1 = new LinearLayout(this); row1.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < types.length; i++) {
             final int idx = i;
             Button b = new Button(this);
@@ -539,8 +560,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             b.setLayoutParams(lp);
             if (i < 3) row1.addView(b); else row2.addView(b);
         }
-        p.addView(row1);
-        p.addView(row2);
+        p.addView(row1); p.addView(row2);
 
         TextView volLabel = new TextView(this);
         volLabel.setText("ГРОМКОСТЬ");
@@ -551,8 +571,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         p.addView(volLabel);
 
         SeekBar sb = new SeekBar(this);
-        sb.setMax(100);
-        sb.setProgress(60);
+        sb.setMax(100); sb.setProgress(60);
         sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar s, int v, boolean f) { noiseVolume = v / 100f; }
             public void onStartTrackingTouch(SeekBar s) {}
@@ -569,9 +588,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         pb.setCornerRadius(14);
         pb.setColor(Color.parseColor("#2A5A8A"));
         playBtn.setBackground(pb);
-        playBtn.setOnClickListener(v -> {
-            if (noisePlaying) stopNoise(); else startNoise();
-        });
+        playBtn.setOnClickListener(v -> { if (noisePlaying) stopNoise(); else startNoise(); });
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 90);
         plp.setMargins(0, 24, 0, 0);
@@ -583,14 +600,10 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         g.setColor(Color.parseColor("#2A5A8A"));
         g.setStroke(2, Color.parseColor("#2A4A6A"));
         typeBtns[0].setBackground(g);
-
         return p;
     }
 
-    private void openNoise() {
-        hideAll();
-        noisePanel.setVisibility(View.VISIBLE);
-    }
+    private void openNoise() { hideAll(); noisePanel.setVisibility(View.VISIBLE); }
 
     private void startNoise() {
         if (noisePlaying) return;
@@ -706,7 +719,8 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         }
         return white;
     }
-        // ===== NETWORK =====
+
+    // ===== NETWORK =====
     private void openNetwork() {
         hideAll();
         networkPanel.setVisibility(View.VISIBLE);
@@ -716,42 +730,33 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     private void runNetworkScanAll() {
         StringBuilder sb = new StringBuilder();
-
-        // Локальный IP
         sb.append("=== LOCAL ===\n");
         String localIp = getLocalIp();
         sb.append("local ip : ").append(localIp != null ? localIp : "n/a").append("\n");
         sb.append("type     : ").append(getNetworkType()).append("\n\n");
 
-        // Публичный IP
         sb.append("=== PUBLIC ===\n");
         String pubIp = httpGet("https://api.ipify.org");
         sb.append("public ip: ").append(pubIp != null ? pubIp.trim() : "failed").append("\n");
 
-        // GeoIP
         if (pubIp != null) {
             String geo = httpGet("http://ip-api.com/json/" + pubIp.trim() + "?fields=country,city,isp,org");
-            if (geo != null) {
-                sb.append("geo      : ").append(geo.trim()).append("\n");
-            }
+            if (geo != null) sb.append("geo      : ").append(geo.trim()).append("\n");
         }
         sb.append("\n");
 
-        // DNS
         sb.append("=== DNS ===\n");
         appendDns(sb, "google.com");
         appendDns(sb, "youtube.com");
         appendDns(sb, "t.me");
         sb.append("\n");
 
-        // Пинг
         sb.append("=== PING ===\n");
         appendPing(sb, "8.8.8.8");
         appendPing(sb, "1.1.1.1");
         appendPing(sb, "ya.ru");
 
         sb.append("\n[✓] done");
-
         final String result = sb.toString();
         monitorHandler.post(() -> networkText.setText(result));
     }
@@ -765,9 +770,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 sb.append(all[i].getHostAddress());
             }
             sb.append("\n");
-        } catch (Exception e) {
-            sb.append(host).append(": failed\n");
-        }
+        } catch (Exception e) { sb.append(host).append(": failed\n"); }
     }
 
     private void appendPing(StringBuilder sb, String host) {
@@ -777,9 +780,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             boolean ok = addr.isReachable(2000);
             long ms = System.currentTimeMillis() - t0;
             sb.append(host).append(": ").append(ok ? ("OK " + ms + " ms") : "FAILED").append("\n");
-        } catch (Exception e) {
-            sb.append(host).append(": FAILED\n");
-        }
+        } catch (Exception e) { sb.append(host).append(": FAILED\n"); }
     }
 
     private String getLocalIp() {
@@ -825,12 +826,10 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             while ((line = r.readLine()) != null) sb.append(line);
             r.close();
             return sb.toString();
-        } catch (Exception e) {
-            return null;
-        }
+        } catch (Exception e) { return null; }
     }
 
-    // ===== WIFI SCAN =====
+    // ===== WIFI SCAN (с MAC/BSSID) =====
     private void openWifi() {
         hideAll();
         wifiPanel.setVisibility(View.VISIBLE);
@@ -849,6 +848,8 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             if (wi != null && wi.getSSID() != null) {
                 sb.append("ssid     : ").append(wi.getSSID().replace("\"", "")).append("\n");
                 sb.append("signal   : ").append(wi.getRssi()).append(" dBm\n");
+                sb.append("bssid    : ").append(wi.getBSSID()).append("\n");
+                sb.append("ip       : ").append(wi.getIpAddress()).append("\n");
             } else {
                 sb.append("not connected\n");
             }
@@ -873,6 +874,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                     sb.append("  ").append(r.level).append("dBm");
                     sb.append("  ").append(security(r.capabilities));
                     sb.append("\n");
+                    sb.append("  mac=").append(r.BSSID).append("\n");
                 }
             }
         } catch (Exception e) {
@@ -943,9 +945,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             sb.append("charge   : ").append(chargeCounter / 1000).append(" mAh\n");
             sb.append("health   : ").append(healthStr(health)).append("\n");
             sb.append("status   : ").append(statusStr(status)).append("\n\n");
-        } catch (Exception e) {
-            sb.append("battery: error\n");
-        }
+        } catch (Exception e) { sb.append("battery: error\n"); }
 
         ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
@@ -961,7 +961,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         sb.append("=== STORAGE ===\n");
         sb.append("free     : ").append(free).append(" MB\n");
         sb.append("total    : ").append(total).append(" MB\n");
-
         return sb.toString();
     }
 
@@ -987,6 +986,308 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return "UNKNOWN";
     }
 
+    // ===== CRYPTO =====
+    private LinearLayout buildCryptoPanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        p.setPadding(20, 16, 20, 16);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("◤ CRYPTO ◢");
+        title.setTextColor(Color.parseColor("#AA88FF"));
+        title.setTextSize(14);
+        title.setTypeface(Typeface.MONOSPACE);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(title);
+        top.addView(makeSmallBtn("←", "#AA88FF", v -> openTools()));
+        p.addView(top);
+
+        cryptoInput = new EditText(this);
+        cryptoInput.setHint("Введи текст...");
+        cryptoInput.setTextColor(Color.WHITE);
+        cryptoInput.setHintTextColor(Color.GRAY);
+        cryptoInput.setBackgroundColor(Color.parseColor("#1A1A2A"));
+        cryptoInput.setPadding(16, 12, 16, 12);
+        cryptoInput.setTextSize(14);
+        cryptoInput.setSingleLine(false);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 140);
+        ilp.setMargins(0, 16, 0, 12);
+        cryptoInput.setLayoutParams(ilp);
+        p.addView(cryptoInput);
+
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button b64 = makeCryptoBtn("Base64", "#AA88FF");
+        b64.setOnClickListener(v -> cryptoOutput.setText(encodeBase64(cryptoInput.getText().toString())));
+        btns.addView(b64);
+
+        Button rot = makeCryptoBtn("ROT13", "#AA88FF");
+        rot.setOnClickListener(v -> cryptoOutput.setText(encodeRot13(cryptoInput.getText().toString())));
+        btns.addView(rot);
+
+        Button xor = makeCryptoBtn("XOR", "#AA88FF");
+        xor.setOnClickListener(v -> cryptoOutput.setText(encodeXor(cryptoInput.getText().toString())));
+        btns.addView(xor);
+
+        p.addView(btns, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 90));
+
+        TextView resLabel = new TextView(this);
+        resLabel.setText("РЕЗУЛЬТАТ:");
+        resLabel.setTextColor(Color.parseColor("#556655"));
+        resLabel.setTextSize(11);
+        resLabel.setTypeface(Typeface.MONOSPACE);
+        resLabel.setPadding(4, 16, 0, 6);
+        p.addView(resLabel);
+
+        cryptoOutput = new TextView(this);
+        cryptoOutput.setText("");
+        cryptoOutput.setTextColor(Color.parseColor("#AA88FF"));
+        cryptoOutput.setTextSize(13);
+        cryptoOutput.setTypeface(Typeface.MONOSPACE);
+        cryptoOutput.setBackgroundColor(Color.parseColor("#121220"));
+        cryptoOutput.setPadding(16, 12, 16, 12);
+        cryptoOutput.setTextIsSelectable(true);
+        ScrollView outScroll = new ScrollView(this);
+        outScroll.addView(cryptoOutput);
+        p.addView(outScroll, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        Button copyBtn = new Button(this);
+        copyBtn.setText("📋  Копировать");
+        copyBtn.setTextColor(Color.WHITE);
+        copyBtn.setTextSize(14);
+        copyBtn.setAllCaps(false);
+        GradientDrawable cb = new GradientDrawable();
+        cb.setCornerRadius(14);
+        cb.setColor(Color.parseColor("#3A2A5A"));
+        copyBtn.setBackground(cb);
+        copyBtn.setOnClickListener(v -> {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(ClipData.newPlainText("crypto", cryptoOutput.getText().toString()));
+            copyBtn.setText("✓ Скопировано");
+            monitorHandler.postDelayed(() -> copyBtn.setText("📋  Копировать"), 1500);
+        });
+        LinearLayout.LayoutParams cblp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 90);
+        cblp.setMargins(0, 8, 0, 0);
+        copyBtn.setLayoutParams(cblp);
+        p.addView(copyBtn);
+
+        return p;
+    }
+
+    private Button makeCryptoBtn(String text, String color) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextColor(Color.parseColor(color));
+        b.setTextSize(13);
+        b.setAllCaps(false);
+        GradientDrawable s = new GradientDrawable();
+        s.setCornerRadius(10);
+        s.setColor(Color.parseColor("#1A1A2A"));
+        s.setStroke(2, Color.parseColor("#3A2A5A"));
+        b.setBackground(s);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        lp.setMargins(4, 4, 4, 4);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private void openCrypto() {
+        hideAll();
+        cryptoPanel.setVisibility(View.VISIBLE);
+    }
+
+    private String encodeBase64(String s) {
+        try {
+            return Base64.encodeToString(s.getBytes("UTF-8"), Base64.NO_WRAP);
+        } catch (Exception e) { return "error"; }
+    }
+
+    private String encodeRot13(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (char c : s.toCharArray()) {
+            if (c >= 'a' && c <= 'z') sb.append((char)((c - 'a' + 13) % 26 + 'a'));
+            else if (c >= 'A' && c <= 'Z') sb.append((char)((c - 'A' + 13) % 26 + 'A'));
+            else sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    private String encodeXor(String s) {
+        StringBuilder sb = new StringBuilder();
+        String key = "HACKER";
+        for (int i = 0; i < s.length(); i++) {
+            sb.append(String.format("%02X", (byte)(s.charAt(i) ^ key.charAt(i % key.length()))));
+        }
+        return sb.toString();
+    }
+
+    // ===== FLASHLIGHT =====
+    private LinearLayout buildFlashlightPanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        p.setPadding(20, 16, 20, 16);
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("◤ FLASHLIGHT ◢");
+        title.setTextColor(Color.parseColor("#FFDD44"));
+        title.setTextSize(14);
+        title.setTypeface(Typeface.MONOSPACE);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(title);
+        top.addView(makeSmallBtn("←", "#FFDD44", v -> openTools()));
+        p.addView(top);
+
+        flashStatus = new TextView(this);
+        flashStatus.setText("● ВЫКЛЮЧЕН");
+        flashStatus.setTextColor(Color.parseColor("#666666"));
+        flashStatus.setTextSize(13);
+        flashStatus.setTypeface(Typeface.MONOSPACE);
+        flashStatus.setPadding(0, 24, 0, 24);
+        flashStatus.setGravity(Gravity.CENTER_HORIZONTAL);
+        p.addView(flashStatus);
+
+        flashBtn = new Button(this);
+        flashBtn.setText("🔦  ВКЛЮЧИТЬ");
+        flashBtn.setTextColor(Color.BLACK);
+        flashBtn.setTextSize(16);
+        flashBtn.setAllCaps(false);
+        GradientDrawable fb = new GradientDrawable();
+        fb.setCornerRadius(16);
+        fb.setColor(Color.parseColor("#FFDD44"));
+        flashBtn.setBackground(fb);
+        flashBtn.setOnClickListener(v -> toggleFlashlight());
+        LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 110);
+        flp.setMargins(0, 0, 0, 16);
+        flashBtn.setLayoutParams(flp);
+        p.addView(flashBtn);
+
+        strobeBtn = new Button(this);
+        strobeBtn.setText("⚡  СТРОБОСКОП");
+        strobeBtn.setTextColor(Color.WHITE);
+        strobeBtn.setTextSize(16);
+        strobeBtn.setAllCaps(false);
+        GradientDrawable sb = new GradientDrawable();
+        sb.setCornerRadius(16);
+        sb.setColor(Color.parseColor("#3A2A0A"));
+        sb.setStroke(2, Color.parseColor("#FFDD44"));
+        strobeBtn.setBackground(sb);
+        strobeBtn.setOnClickListener(v -> toggleStrobe());
+        strobeBtn.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 110));
+        p.addView(strobeBtn);
+
+        return p;
+    }
+
+    private void openFlashlight() {
+        hideAll();
+        flashlightPanel.setVisibility(View.VISIBLE);
+    }
+
+    private boolean initCamera() {
+        try {
+            if (cameraManager == null) {
+                cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            }
+            if (cameraId == null) {
+                for (String id : cameraManager.getCameraIdList()) {
+                    android.hardware.camera2.CameraCharacteristics ch =
+                        cameraManager.getCameraCharacteristics(id);
+                    Boolean flashAvailable = ch.get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                    Integer facing = ch.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING);
+                    if (flashAvailable != null && flashAvailable &&
+                        facing != null && facing == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK) {
+                        cameraId = id;
+                        return true;
+                    }
+                }
+            } else {
+                return true;
+            }
+        } catch (Exception e) {}
+        return false;
+    }
+
+    private void setTorch(boolean on) {
+        try {
+            if (cameraManager == null || cameraId == null) initCamera();
+            if (cameraManager != null && cameraId != null) {
+                cameraManager.setTorchMode(cameraId, on);
+            }
+        } catch (Exception e) {}
+    }
+
+    private void toggleFlashlight() {
+        if (strobeOn) toggleStrobe();
+        flashOn = !flashOn;
+        setTorch(flashOn);
+        if (flashOn) {
+            flashBtn.setText("🔦  ВЫКЛЮЧИТЬ");
+            flashStatus.setText("● ВКЛЮЧЕН");
+            flashStatus.setTextColor(Color.parseColor("#FFDD44"));
+        } else {
+            flashBtn.setText("🔦  ВКЛЮЧИТЬ");
+            flashStatus.setText("● ВЫКЛЮЧЕН");
+            flashStatus.setTextColor(Color.parseColor("#666666"));
+        }
+    }
+
+    private void toggleStrobe() {
+        strobeOn = !strobeOn;
+        if (strobeOn) {
+            if (!initCamera()) {
+                strobeOn = false;
+                flashStatus.setText("● НЕТ ФОНАРИКА");
+                flashStatus.setTextColor(Color.parseColor("#FF4444"));
+                return;
+            }
+            if (strobeHandler == null) strobeHandler = new Handler(Looper.getMainLooper());
+            strobeBtn.setText("⚡  СТОП");
+            GradientDrawable sb = new GradientDrawable();
+            sb.setCornerRadius(16);
+            sb.setColor(Color.parseColor("#8A2A2A"));
+            strobeBtn.setBackground(sb);
+            flashStatus.setText("● СТРОБОСКОП 5 Hz");
+            flashStatus.setTextColor(Color.parseColor("#FFDD44"));
+            strobeHandler.post(strobeRunnable);
+        } else {
+            if (strobeHandler != null) strobeHandler.removeCallbacksAndMessages(null);
+            setTorch(false);
+            strobeBtn.setText("⚡  СТРОБОСКОП");
+            GradientDrawable sb = new GradientDrawable();
+            sb.setCornerRadius(16);
+            sb.setColor(Color.parseColor("#3A2A0A"));
+            sb.setStroke(2, Color.parseColor("#FFDD44"));
+            strobeBtn.setBackground(sb);
+            flashStatus.setText("● ВЫКЛЮЧЕН");
+            flashStatus.setTextColor(Color.parseColor("#666666"));
+        }
+    }
+
+    private boolean strobeState = false;
+    private final Runnable strobeRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!strobeOn) return;
+            strobeState = !strobeState;
+            setTorch(strobeState);
+            if (strobeHandler != null) strobeHandler.postDelayed(this, 100);
+        }
+    };
+
     // ===== Web / панели =====
     private void openWeb(String url) {
         hideAll();
@@ -1003,12 +1304,16 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         networkPanel.setVisibility(View.GONE);
         wifiPanel.setVisibility(View.GONE);
         devicePanel.setVisibility(View.GONE);
+        cryptoPanel.setVisibility(View.GONE);
+        flashlightPanel.setVisibility(View.GONE);
         miniKeyboard.setVisibility(View.GONE);
         mainKeyboardLayout.setVisibility(View.GONE);
     }
 
     private void closeAll() {
         stopNoise();
+        if (strobeOn) toggleStrobe();
+        if (flashOn) toggleFlashlight();
         monitorHandler.removeCallbacksAndMessages(null);
         hideAll();
         mainKeyboardLayout.setVisibility(View.VISIBLE);
@@ -1021,6 +1326,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     @Override
     public void onDestroy() {
         stopNoise();
+        if (strobeOn) toggleStrobe();
+        if (flashOn) toggleFlashlight();
+        if (strobeHandler != null) strobeHandler.removeCallbacksAndMessages(null);
         monitorHandler.removeCallbacksAndMessages(null);
         if (executor != null) executor.shutdownNow();
         super.onDestroy();
@@ -1049,36 +1357,40 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         hideBtn.setBackground(hs);
         hideBtn.setOnClickListener(v -> {
             if (miniKeyboard == null || miniKeyboard.getChildCount() < 2) return;
-            int vis = miniKeyboard.getChildAt(1).getVisibility() == View.VISIBLE
-                    ? View.GONE : View.VISIBLE;
-            for (int i = 1; i < miniKeyboard.getChildCount(); i++)
-                miniKeyboard.getChildAt(i).setVisibility(vis);
+            int vis = miniKeyboard.getChildAt(1).getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE;
+            for (int i = 1; i < miniKeyboard.getChildCount(); i++) miniKeyboard.getChildAt(i).setVisibility(vis);
             hideBtn.setText(vis == View.VISIBLE ? "⌄" : "⌃");
         });
-        LinearLayout.LayoutParams hb = new LinearLayout.LayoutParams(90, 52);
+        LinearLayout.LayoutParams hb = new LinearLayout.LayoutParams(70, 52);
         hb.setMargins(4, 2, 4, 2);
         hideBtn.setLayoutParams(hb);
         header.addView(hideBtn);
+
+        Button backBtn = new Button(this);
+        backBtn.setText("◁ Назад");
+        backBtn.setTextColor(Color.WHITE);
+        backBtn.setTextSize(12);
+        backBtn.setAllCaps(false);
+        backBtn.setBackground(hs);
+        backBtn.setOnClickListener(v -> { if (webView.canGoBack()) webView.goBack(); });
+        LinearLayout.LayoutParams bb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 52);
+        bb.setMargins(4, 2, 4, 2);
+        backBtn.setLayoutParams(bb);
+        header.addView(backBtn);
 
         Button clearBtn = new Button(this);
         clearBtn.setText("Очистить");
         clearBtn.setTextColor(Color.parseColor("#FF9999"));
         clearBtn.setTextSize(12);
-        clearBtn.setPadding(0, 0, 0, 0);
         clearBtn.setAllCaps(false);
-        GradientDrawable cs = new GradientDrawable();
-        cs.setCornerRadius(10);
-        cs.setColor(Color.parseColor("#252525"));
-        clearBtn.setBackground(cs);
+        clearBtn.setBackground(hs);
         clearBtn.setOnClickListener(v -> clearActiveField());
-        LinearLayout.LayoutParams cb = new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, 52);
+        LinearLayout.LayoutParams cb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 52);
         cb.setMargins(4, 2, 4, 2);
         clearBtn.setLayoutParams(cb);
         header.addView(clearBtn);
 
-        wrapper.addView(header, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 56));
+        wrapper.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 56));
 
         String[][] rows;
         if (miniRussian) {
@@ -1102,8 +1414,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             r.setOrientation(LinearLayout.HORIZONTAL);
             r.setGravity(Gravity.CENTER);
             for (String k : row) r.addView(makeMiniKey(k, 1f, () -> onMiniKey(k)));
-            wrapper.addView(r, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 66));
+            wrapper.addView(r, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 66));
         }
 
         LinearLayout bottomRow = new LinearLayout(this);
@@ -1126,8 +1437,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         bottomRow.addView(makeMiniKey("_", 1f, () -> onMiniKey("_")));
         bottomRow.addView(makeMiniKey("⌫", 1.5f, () -> onMiniKey("⌫")));
         bottomRow.addView(makeMiniKey("↵", 1.5f, () -> sendEnter()));
-        wrapper.addView(bottomRow, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 66));
+        wrapper.addView(bottomRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 66));
 
         return wrapper;
     }
@@ -1145,8 +1455,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         shape.setColor(Color.parseColor("#2A2A2A"));
         b.setBackground(shape);
         b.setOnClickListener(v -> onClick.run());
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
         p.setMargins(3, 3, 3, 3);
         b.setLayoutParams(p);
         return b;
@@ -1200,59 +1509,89 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         if (keyboardKeysLayout == null) return;
         keyboardKeysLayout.removeAllViews();
 
-        String[] numRow = {"1","2","3","4","5","6","7","8","9","0"};
-        LinearLayout row0 = new LinearLayout(this);
-        row0.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : numRow) addKeyButton(row0, key, v -> typeText(key), 1.0f, "#1E1E1E");
-        keyboardKeysLayout.addView(row0, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 105));
+        if (symbolsMode) {
+            String[] sym1 = {"1","2","3","4","5","6","7","8","9","0"};
+            String[] sym2 = {"@","#","$","%","&","*","-","+","(",")"};
+            String[] sym3 = {"/","\"","'",":",";","!",",","?",".","_"};
 
-        String[] row1Keys = isRussian ?
-            new String[]{"й","ц","у","к","е","н","г","ш","щ","з","х","ъ"} :
-            new String[]{"q","w","e","r","t","y","u","i","o","p"};
-        String[] row2Keys = isRussian ?
-            new String[]{"ф","ы","в","а","п","р","о","л","д","ж","э"} :
-            new String[]{"a","s","d","f","g","h","j","k","l"};
-        String[] row3Keys = isRussian ?
-            new String[]{"я","ч","с","м","и","т","ь","б","ю"} :
-            new String[]{"z","x","c","v","b","n","m"};
+            LinearLayout r1 = new LinearLayout(this); r1.setGravity(Gravity.CENTER_HORIZONTAL);
+            for (String k : sym1) addKeyButton(r1, k, v -> typeText(k), 1f, "#1E1E1E");
+            keyboardKeysLayout.addView(r1, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 110));
 
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : row1Keys) addKeyButton(row1, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
-        keyboardKeysLayout.addView(row1, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 125));
+            LinearLayout r2 = new LinearLayout(this); r2.setGravity(Gravity.CENTER_HORIZONTAL);
+            for (String k : sym2) addKeyButton(r2, k, v -> typeText(k), 1f, "#2A2A2A");
+            keyboardKeysLayout.addView(r2, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 110));
 
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : row2Keys) addKeyButton(row2, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
-        keyboardKeysLayout.addView(row2, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 125));
+            LinearLayout r3 = new LinearLayout(this); r3.setGravity(Gravity.CENTER_HORIZONTAL);
+            for (String k : sym3) addKeyButton(r3, k, v -> typeText(k), 1f, "#2A2A2A");
+            keyboardKeysLayout.addView(r3, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 110));
 
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setGravity(Gravity.CENTER_HORIZONTAL);
-        for (String key : row3Keys) addKeyButton(row3, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
-        addKeyButton(row3, "⌫", v -> {
-            InputConnection ic = getCurrentInputConnection();
-            if (ic != null) ic.deleteSurroundingText(1, 0);
-        }, 1.5f, "#4A2525");
-        keyboardKeysLayout.addView(row3, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 125));
+            LinearLayout r4 = new LinearLayout(this); r4.setGravity(Gravity.CENTER_HORIZONTAL);
+            addKeyButton(r4, "АБВ", v -> { symbolsMode = false; buildKeyboard(); }, 1.5f, "#1A1A1A");
+            addKeyButton(r4, "←", v -> sendArrow(KeyEvent.KEYCODE_DPAD_LEFT), 1f, "#252525");
+            addKeyButton(r4, "ПРОБЕЛ", v -> typeText(" "), 3f, "#2A2A2A");
+            addKeyButton(r4, "→", v -> sendArrow(KeyEvent.KEYCODE_DPAD_RIGHT), 1f, "#252525");
+            addKeyButton(r4, "⌫", v -> {
+                InputConnection ic = getCurrentInputConnection();
+                if (ic != null) ic.deleteSurroundingText(1, 0);
+            }, 1.5f, "#4A2525");
+            keyboardKeysLayout.addView(r4, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 110));
+        } else {
+            String[] numRow = {"1","2","3","4","5","6","7","8","9","0"};
+            LinearLayout row0 = new LinearLayout(this);
+            row0.setGravity(Gravity.CENTER_HORIZONTAL);
+            for (String key : numRow) addKeyButton(row0, key, v -> typeText(key), 1.0f, "#1E1E1E");
+            keyboardKeysLayout.addView(row0, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 105));
 
-        LinearLayout row4 = new LinearLayout(this);
-        row4.setGravity(Gravity.CENTER_HORIZONTAL);
-        String langText = isRussian ? "РУС" : "ENG";
-        addKeyButton(row4, langText, v -> { isRussian = !isRussian; buildKeyboard(); }, 2.0f, "#1A1A1A");
-        addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 5.0f, "#2A2A2A");
-        keyboardKeysLayout.addView(row4, new LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 125));
+            String[] row1Keys = isRussian ?
+                new String[]{"й","ц","у","к","е","н","г","ш","щ","з","х","ъ"} :
+                new String[]{"q","w","e","r","t","y","u","i","o","p"};
+            String[] row2Keys = isRussian ?
+                new String[]{"ф","ы","в","а","п","р","о","л","д","ж","э"} :
+                new String[]{"a","s","d","f","g","h","j","k","l"};
+            String[] row3Keys = isRussian ?
+                new String[]{"я","ч","с","м","и","т","ь","б","ю"} :
+                new String[]{"z","x","c","v","b","n","m"};
+
+            LinearLayout row1 = new LinearLayout(this); row1.setGravity(Gravity.CENTER_HORIZONTAL);
+            for (String key : row1Keys) addKeyButton(row1, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
+            keyboardKeysLayout.addView(row1, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 125));
+
+            LinearLayout row2 = new LinearLayout(this); row2.setGravity(Gravity.CENTER_HORIZONTAL);
+            for (String key : row2Keys) addKeyButton(row2, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
+            keyboardKeysLayout.addView(row2, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 125));
+
+            LinearLayout row3 = new LinearLayout(this); row3.setGravity(Gravity.CENTER_HORIZONTAL);
+            for (String key : row3Keys) addKeyButton(row3, key.toUpperCase(), v -> typeText(key), 1.0f, "#2A2A2A");
+            addKeyButton(row3, "⌫", v -> {
+                InputConnection ic = getCurrentInputConnection();
+                if (ic != null) ic.deleteSurroundingText(1, 0);
+            }, 1.5f, "#4A2525");
+            keyboardKeysLayout.addView(row3, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 125));
+
+            LinearLayout row4 = new LinearLayout(this); row4.setGravity(Gravity.CENTER_HORIZONTAL);
+            addKeyButton(row4, isRussian ? "РУС" : "ENG", v -> { isRussian = !isRussian; buildKeyboard(); }, 1.8f, "#1A1A1A");
+            addKeyButton(row4, "123", v -> { symbolsMode = true; buildKeyboard(); }, 1.2f, "#1A1A1A");
+            addKeyButton(row4, "ПРОБЕЛ", v -> typeText(" "), 3f, "#2A2A2A");
+            addKeyButton(row4, "←", v -> sendArrow(KeyEvent.KEYCODE_DPAD_LEFT), 1f, "#252525");
+            addKeyButton(row4, "→", v -> sendArrow(KeyEvent.KEYCODE_DPAD_RIGHT), 1f, "#252525");
+            keyboardKeysLayout.addView(row4, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 115));
+        }
+    }
+
+    private void sendArrow(int keyCode) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null) {
+            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, keyCode));
+            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, keyCode));
+        }
     }
 
     private void addKeyButton(LinearLayout parent, String text, View.OnClickListener listener, float weight, String colorHex) {
         Button btn = new Button(this);
         btn.setText(text);
         btn.setTextColor(Color.WHITE);
-        btn.setTextSize(20);
+        btn.setTextSize(18);
         btn.setPadding(0, 0, 0, 0);
         btn.setGravity(Gravity.CENTER);
         btn.setAllCaps(false);
@@ -1261,8 +1600,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         shape.setCornerRadius(14);
         shape.setColor(Color.parseColor(colorHex));
         btn.setBackground(shape);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
         params.setMargins(3, 4, 3, 4);
         btn.setLayoutParams(params);
         parent.addView(btn);
@@ -1281,8 +1619,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         shape.setCornerRadius(14);
         shape.setColor(Color.parseColor("#202020"));
         btn.setBackground(shape);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f);
         params.setMargins(4, 5, 4, 5);
         btn.setLayoutParams(params);
         parent.addView(btn);
