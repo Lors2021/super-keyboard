@@ -378,6 +378,173 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             long dT = total - prevCpuTotal, dI = idle - prevCpuIdle; prevCpuTotal = total; prevCpuIdle = idle;
             return dT <= 0 ? -1 : (int)(100 * (dT - dI) / dT);
         } catch (Exception e) { return -1; }
+            private void openNetwork() { hideAll(); networkPanel.setVisibility(View.VISIBLE); networkText.setText("scanning...\n"); executor.execute(this::runNetworkScanAll); }
+
+    private void runNetworkScanAll() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== LOCAL ===\n");
+        sb.append("local ip : ").append(getLocalIp() != null ? getLocalIp() : "n/a").append("\n");
+        sb.append("type     : ").append(getNetworkType()).append("\n\n");
+        sb.append("=== PUBLIC ===\n");
+        String pubIp = httpGet("https://api.ipify.org");
+        sb.append("public ip: ").append(pubIp != null ? pubIp.trim() : "failed").append("\n");
+        if (pubIp != null) {
+            String geo = httpGet("http://ip-api.com/json/" + pubIp.trim() + "?fields=country,city,isp,org");
+            if (geo != null) sb.append("geo      : ").append(geo.trim()).append("\n");
+        }
+        sb.append("\n=== DNS ===\n");
+        appendDns(sb, "google.com"); appendDns(sb, "youtube.com"); appendDns(sb, "t.me");
+        sb.append("\n=== PING ===\n");
+        appendPing(sb, "8.8.8.8"); appendPing(sb, "1.1.1.1"); appendPing(sb, "ya.ru");
+        sb.append("\n[✓] done");
+        final String result = sb.toString();
+        monitorHandler.post(() -> networkText.setText(result));
+    }
+
+    private void appendDns(StringBuilder sb, String host) {
+        try {
+            InetAddress[] all = InetAddress.getAllByName(host);
+            sb.append(host).append(": ");
+            for (int i = 0; i < all.length && i < 3; i++) { if (i > 0) sb.append(", "); sb.append(all[i].getHostAddress()); }
+            sb.append("\n");
+        } catch (Exception e) { sb.append(host).append(": failed\n"); }
+    }
+
+    private void appendPing(StringBuilder sb, String host) {
+        try {
+            InetAddress addr = InetAddress.getByName(host);
+            long t0 = System.currentTimeMillis(); boolean ok = addr.isReachable(2000); long ms = System.currentTimeMillis() - t0;
+            sb.append(host).append(": ").append(ok ? ("OK " + ms + " ms") : "FAILED").append("\n");
+        } catch (Exception e) { sb.append(host).append(": FAILED\n"); }
+    }
+
+    private String getLocalIp() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifs = java.net.NetworkInterface.getNetworkInterfaces();
+            while (ifs.hasMoreElements()) {
+                java.net.NetworkInterface ni = ifs.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                java.util.Enumeration<InetAddress> addrs = ni.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress a = addrs.nextElement();
+                    if (!a.isLoopbackAddress() && a.getHostAddress().indexOf(':') < 0) return a.getHostAddress();
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String getNetworkType() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            if (nc == null) return "none";
+            if (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "wifi";
+            if (nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "cellular";
+            if (nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "ethernet";
+        } catch (Exception ignored) {}
+        return "unknown";
+    }
+
+    private String httpGet(String urlStr) {
+        try {
+            URL url = new URL(urlStr); HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            c.setConnectTimeout(4000); c.setReadTimeout(4000);
+            BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = r.readLine()) != null) sb.append(line); r.close(); return sb.toString();
+        } catch (Exception e) { return null; }
+    }
+
+    private void openWifi() { hideAll(); wifiPanel.setVisibility(View.VISIBLE); wifiText.setText("scanning...\n"); executor.execute(this::runWifiScan); }
+
+    private void runWifiScan() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            WifiInfo wi = wm.getConnectionInfo();
+            sb.append("=== CURRENT ===\n");
+            if (wi != null && wi.getSSID() != null) {
+                sb.append("ssid     : ").append(wi.getSSID().replace("\"", "")).append("\n");
+                sb.append("signal   : ").append(wi.getRssi()).append(" dBm\n");
+                sb.append("bssid    : ").append(wi.getBSSID()).append("\n");
+            } else { sb.append("not connected\n"); }
+            sb.append("\n");
+            List<ScanResult> results = wm.getScanResults();
+            if (results == null || results.isEmpty()) { wm.startScan(); Thread.sleep(2500); results = wm.getScanResults(); }
+            if (results == null || results.isEmpty()) {
+                sb.append("=== NEARBY ===\nno results. Нужно разрешение на локацию.\n");
+            } else {
+                sb.append("=== NEARBY (").append(results.size()).append(") ===\n");
+                results.sort((a, b) -> Integer.compare(b.level, a.level));
+                for (ScanResult r : results) {
+                    sb.append(r.SSID.isEmpty() ? "<hidden>" : r.SSID).append("\n");
+                    sb.append("  ch=").append(freqToCh(r.frequency)).append("  ").append(r.level).append("dBm  ").append(security(r.capabilities)).append("\n");
+                    sb.append("  mac=").append(r.BSSID).append("\n");
+                }
+            }
+        } catch (Exception e) { sb.append("error: ").append(e.getMessage()).append("\n"); }
+        sb.append("\n[✓] done");
+        final String result = sb.toString(); monitorHandler.post(() -> wifiText.setText(result));
+    }
+
+    private int freqToCh(int freq) {
+        if (freq == 2484) return 14; if (freq >= 2412 && freq <= 2472) return (freq - 2407) / 5; if (freq >= 5170 && freq <= 5825) return (freq - 5000) / 5; return 0;
+    }
+
+    private String security(String caps) {
+        if (caps == null) return "OPEN"; if (caps.contains("WPA3")) return "WPA3"; if (caps.contains("WPA2")) return "WPA2";
+        if (caps.contains("WPA")) return "WPA"; if (caps.contains("WEP")) return "WEP"; return "OPEN";
+    }
+
+    private void openDevice() { hideAll(); devicePanel.setVisibility(View.VISIBLE); deviceText.setText(buildDeviceInfo()); }
+
+    private String buildDeviceInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== DEVICE ===\n"); sb.append("brand    : ").append(Build.MANUFACTURER).append("\n");
+        sb.append("model    : ").append(Build.MODEL).append("\n"); sb.append("device   : ").append(Build.DEVICE).append("\n");
+        sb.append("android  : ").append(Build.VERSION.RELEASE).append("\n"); sb.append("sdk      : ").append(Build.VERSION.SDK_INT).append("\n");
+        sb.append("kernel   : ").append(System.getProperty("os.version")).append("\n"); sb.append("arch     : ").append(System.getProperty("os.arch")).append("\n");
+        sb.append("cores    : ").append(Runtime.getRuntime().availableProcessors()).append("\n\n");
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        sb.append("=== SCREEN ===\n"); sb.append("size     : ").append(dm.widthPixels).append("x").append(dm.heightPixels).append("\n");
+        sb.append("density  : ").append(dm.densityDpi).append(" dpi\n\n");
+        try {
+            BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
+            int level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            long chargeCounter = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+            android.content.IntentFilter ifilter = new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED);
+            android.content.Intent batteryStatus = registerReceiver(null, ifilter);
+            int temp = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) : 0;
+            int volt = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) : 0;
+            int health = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_HEALTH, 0) : 0;
+            int status = batteryStatus != null ? batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, 0) : 0;
+            sb.append("=== BATTERY ===\n"); sb.append("level    : ").append(level).append(" %\n");
+            sb.append("temp     : ").append(temp / 10.0).append(" °C\n"); sb.append("voltage  : ").append(volt).append(" mV\n");
+            sb.append("charge   : ").append(chargeCounter / 1000).append(" mAh\n"); sb.append("health   : ").append(healthStr(health)).append("\n");
+            sb.append("status   : ").append(statusStr(status)).append("\n\n");
+        } catch (Exception e) { sb.append("battery: error\n"); }
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo(); am.getMemoryInfo(mi);
+        sb.append("=== MEMORY ===\n"); sb.append("total    : ").append(mi.totalMem / 1024 / 1024).append(" MB\n");
+        sb.append("avail    : ").append(mi.availMem / 1024 / 1024).append(" MB\n"); sb.append("low      : ").append(mi.lowMemory ? "yes" : "no").append("\n\n");
+        java.io.File dataDir = getFilesDir(); long free = dataDir.getFreeSpace() / 1024 / 1024; long total = dataDir.getTotalSpace() / 1024 / 1024;
+        sb.append("=== STORAGE ===\n"); sb.append("free     : ").append(free).append(" MB\n"); sb.append("total    : ").append(total).append(" MB\n");
+        return sb.toString();
+    }
+
+    private String healthStr(int h) {
+        switch (h) { case BatteryManager.BATTERY_HEALTH_GOOD: return "GOOD"; case BatteryManager.BATTERY_HEALTH_OVERHEAT: return "OVERHEAT";
+            case BatteryManager.BATTERY_HEALTH_DEAD: return "DEAD"; case BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE: return "OVER_VOLTAGE";
+            case BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE: return "FAILURE"; case BatteryManager.BATTERY_HEALTH_COLD: return "COLD"; }
+        return "UNKNOWN";
+    }
+
+    private String statusStr(int s) {
+        switch (s) { case BatteryManager.BATTERY_STATUS_CHARGING: return "CHARGING"; case BatteryManager.BATTERY_STATUS_DISCHARGING: return "DISCHARGING";
+            case BatteryManager.BATTERY_STATUS_FULL: return "FULL"; case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return "NOT CHARGING"; }
+        return "UNKNOWN";
+    }
     }    private LinearLayout buildNoisePanel() {
         LinearLayout p = new LinearLayout(this); p.setOrientation(LinearLayout.VERTICAL); p.setBackgroundColor(Color.parseColor("#0A0A0A")); p.setPadding(20, 16, 20, 16);
         LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
