@@ -1295,8 +1295,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         Button getFromFieldBtn = makeCryptoBtn("Взять из чата", "#44DD88");
         getFromFieldBtn.setOnClickListener(v -> {
             InputConnection ic = getCurrentInputConnection();
-            if (ic != null) { CharSequence before = ic.getTextBeforeCursor(500, 0); CharSequence after = ic.getTextAfterCursor(500, 0);
-                if (before != null || after != null) cryptoInput.setText((before != null ? before : "") + (after != null ? after : "")); }
+            if (before != null || after != null) cryptoInput.setText((before != null ? before.toString() : "") + (after != null ? after.toString() : "")); }
         }); inputBtns.addView(getFromFieldBtn);
         p.addView(inputBtns, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 80));
         LinearLayout btns = new LinearLayout(this); btns.setOrientation(LinearLayout.HORIZONTAL);
