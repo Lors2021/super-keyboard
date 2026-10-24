@@ -1275,50 +1275,127 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return "UNKNOWN";
     }
 
-    private LinearLayout buildCryptoPanel() {
+      private LinearLayout buildCryptoPanel() {
         LinearLayout p = new LinearLayout(this);
-        p.setOrientation(LinearLayout.VERTICAL); p.setBackgroundColor(Color.parseColor("#0A0A0A")); p.setPadding(20, 16, 20, 16);
-        LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(this); title.setText("◤ CRYPTO ◢"); title.setTextColor(Color.parseColor("#AA88FF"));
-        title.setTextSize(14); title.setTypeface(Typeface.MONOSPACE); title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        top.addView(title); top.addView(makeSmallBtn("←", "#AA88FF", v -> openTools())); p.addView(top);
-        cryptoInput = new TextView(this); cryptoInput.setText("Нажми 'Вставить'..."); cryptoInput.setTextColor(Color.WHITE);
-        cryptoInput.setBackgroundColor(Color.parseColor("#1A1A2A")); cryptoInput.setPadding(16, 12, 16, 12); cryptoInput.setTextSize(14);
-        cryptoInput.setTextIsSelectable(true); LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120);
-        ilp.setMargins(0, 16, 0, 12); cryptoInput.setLayoutParams(ilp); p.addView(cryptoInput);
-        LinearLayout inputBtns = new LinearLayout(this); inputBtns.setOrientation(LinearLayout.HORIZONTAL);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setBackgroundColor(Color.parseColor("#0A0A0A"));
+        p.setPadding(20, 16, 20, 16);
+        
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        
+        TextView title = new TextView(this);
+        title.setText("◤ CRYPTO ◢");
+        title.setTextColor(Color.parseColor("#AA88FF"));
+        title.setTextSize(14);
+        title.setTypeface(Typeface.MONOSPACE);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(title);
+        top.addView(makeSmallBtn("←", "#AA88FF", v -> openTools()));
+        p.addView(top);
+        
+        cryptoInput = new TextView(this);
+        cryptoInput.setText("Нажми 'Вставить'...");
+        cryptoInput.setTextColor(Color.WHITE);
+        cryptoInput.setBackgroundColor(Color.parseColor("#1A1A2A"));
+        cryptoInput.setPadding(16, 12, 16, 12);
+        cryptoInput.setTextSize(14);
+        cryptoInput.setTextIsSelectable(true);
+        
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 120);
+        ilp.setMargins(0, 16, 0, 12);
+        cryptoInput.setLayoutParams(ilp);
+        p.addView(cryptoInput);
+        
+        LinearLayout inputBtns = new LinearLayout(this);
+        inputBtns.setOrientation(LinearLayout.HORIZONTAL);
+        
         Button pasteBtn = makeCryptoBtn("📋 Вставить", "#44DD88");
         pasteBtn.setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) cryptoInput.setText(cm.getPrimaryClip().getItemAt(0).getText());
-        }); inputBtns.addView(pasteBtn);
+            if (cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+                cryptoInput.setText(cm.getPrimaryClip().getItemAt(0).getText());
+            }
+        });
+        inputBtns.addView(pasteBtn);
+        
         Button getFromFieldBtn = makeCryptoBtn("Взять из чата", "#44DD88");
         getFromFieldBtn.setOnClickListener(v -> {
             InputConnection ic = getCurrentInputConnection();
-            if (before != null || after != null) cryptoInput.setText((before != null ? before.toString() : "") + (after != null ? after.toString() : "")); }
-        }); inputBtns.addView(getFromFieldBtn);
+            if (ic != null) {
+                CharSequence before = ic.getTextBeforeCursor(500, 0);
+                CharSequence after = ic.getTextAfterCursor(500, 0);
+                if (before != null || after != null) {
+                    cryptoInput.setText((before != null ? before.toString() : "") + (after != null ? after.toString() : ""));
+                }
+            }
+        });
+        inputBtns.addView(getFromFieldBtn);
+        
         p.addView(inputBtns, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 80));
-        LinearLayout btns = new LinearLayout(this); btns.setOrientation(LinearLayout.HORIZONTAL);
-        Button b64 = makeCryptoBtn("Base64", "#AA88FF"); b64.setOnClickListener(v -> cryptoOutput.setText(encodeBase64(cryptoInput.getText().toString()))); btns.addView(b64);
-        Button rot = makeCryptoBtn("ROT13", "#AA88FF"); rot.setOnClickListener(v -> cryptoOutput.setText(encodeRot13(cryptoInput.getText().toString()))); btns.addView(rot);
-        Button xor = makeCryptoBtn("XOR", "#AA88FF"); xor.setOnClickListener(v -> cryptoOutput.setText(encodeXor(cryptoInput.getText().toString()))); btns.addView(xor);
+        
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        
+        Button b64 = makeCryptoBtn("Base64", "#AA88FF");
+        b64.setOnClickListener(v -> cryptoOutput.setText(encodeBase64(cryptoInput.getText().toString())));
+        btns.addView(b64);
+        
+        Button rot = makeCryptoBtn("ROT13", "#AA88FF");
+        rot.setOnClickListener(v -> cryptoOutput.setText(encodeRot13(cryptoInput.getText().toString())));
+        btns.addView(rot);
+        
+        Button xor = makeCryptoBtn("XOR", "#AA88FF");
+        xor.setOnClickListener(v -> cryptoOutput.setText(encodeXor(cryptoInput.getText().toString())));
+        btns.addView(xor);
+        
         p.addView(btns, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 80));
-        TextView resLabel = new TextView(this); resLabel.setText("РЕЗУЛЬТАТ:"); resLabel.setTextColor(Color.parseColor("#556655"));
-        resLabel.setTextSize(11); resLabel.setTypeface(Typeface.MONOSPACE); resLabel.setPadding(4, 10, 0, 6); p.addView(resLabel);
-        cryptoOutput = new TextView(this); cryptoOutput.setText(""); cryptoOutput.setTextColor(Color.parseColor("#AA88FF"));
-        cryptoOutput.setTextSize(13); cryptoOutput.setTypeface(Typeface.MONOSPACE); cryptoOutput.setBackgroundColor(Color.parseColor("#121220"));
-        cryptoOutput.setPadding(16, 12, 16, 12); cryptoOutput.setTextIsSelectable(true);
-        ScrollView outScroll = new ScrollView(this); outScroll.addView(cryptoOutput);
+        
+        TextView resLabel = new TextView(this);
+        resLabel.setText("РЕЗУЛЬТАТ:");
+        resLabel.setTextColor(Color.parseColor("#556655"));
+        resLabel.setTextSize(11);
+        resLabel.setTypeface(Typeface.MONOSPACE);
+        resLabel.setPadding(4, 10, 0, 6);
+        p.addView(resLabel);
+        
+        cryptoOutput = new TextView(this);
+        cryptoOutput.setText("");
+        cryptoOutput.setTextColor(Color.parseColor("#AA88FF"));
+        cryptoOutput.setTextSize(13);
+        cryptoOutput.setTypeface(Typeface.MONOSPACE);
+        cryptoOutput.setBackgroundColor(Color.parseColor("#121220"));
+        cryptoOutput.setPadding(16, 12, 16, 12);
+        cryptoOutput.setTextIsSelectable(true);
+        
+        ScrollView outScroll = new ScrollView(this);
+        outScroll.addView(cryptoOutput);
         p.addView(outScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        Button copyBtn = new Button(this); copyBtn.setText("📋  Копировать результат"); copyBtn.setTextColor(Color.WHITE);
-        copyBtn.setTextSize(14); copyBtn.setAllCaps(false); GradientDrawable cb = new GradientDrawable(); cb.setCornerRadius(14);
-        cb.setColor(Color.parseColor("#3A2A5A")); copyBtn.setBackground(cb);
+        
+        Button copyBtn = new Button(this);
+        copyBtn.setText("📋  Копировать результат");
+        copyBtn.setTextColor(Color.WHITE);
+        copyBtn.setTextSize(14);
+        copyBtn.setAllCaps(false);
+        
+        GradientDrawable cb = new GradientDrawable();
+        cb.setCornerRadius(14);
+        cb.setColor(Color.parseColor("#3A2A5A"));
+        copyBtn.setBackground(cb);
+        
         copyBtn.setOnClickListener(v -> {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(ClipData.newPlainText("crypto", cryptoOutput.getText().toString()));
-            copyBtn.setText("✓ Скопировано"); monitorHandler.postDelayed(() -> copyBtn.setText("📋  Копировать результат"), 1500);
-        }); LinearLayout.LayoutParams cblp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 80);
-        cblp.setMargins(0, 8, 0, 0); copyBtn.setLayoutParams(cblp); p.addView(copyBtn);
+            copyBtn.setText("✓ Скопировано");
+            monitorHandler.postDelayed(() -> copyBtn.setText("📋  Копировать результат"), 1500);
+        });
+        
+        LinearLayout.LayoutParams cblp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 80);
+        cblp.setMargins(0, 8, 0, 0);
+        copyBtn.setLayoutParams(cblp);
+        p.addView(copyBtn);
+        
         return p;
     }
 
