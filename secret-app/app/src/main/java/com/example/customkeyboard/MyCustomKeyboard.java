@@ -378,7 +378,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             long dT = total - prevCpuTotal, dI = idle - prevCpuIdle; prevCpuTotal = total; prevCpuIdle = idle;
             return dT <= 0 ? -1 : (int)(100 * (dT - dI) / dT);
         } catch (Exception e) { return -1; }
-            private void openNetwork() { hideAll(); networkPanel.setVisibility(View.VISIBLE); networkText.setText("scanning...\n"); executor.execute(this::runNetworkScanAll); }
+    }
+           
+        private void openNetwork() { hideAll(); networkPanel.setVisibility(View.VISIBLE); networkText.setText("scanning...\n"); executor.execute(this::runNetworkScanAll); }
 
     private void runNetworkScanAll() {
         StringBuilder sb = new StringBuilder();
@@ -545,7 +547,8 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             case BatteryManager.BATTERY_STATUS_FULL: return "FULL"; case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return "NOT CHARGING"; }
         return "UNKNOWN";
     }
-    }    private LinearLayout buildNoisePanel() {
+    
+        private LinearLayout buildNoisePanel() {
         LinearLayout p = new LinearLayout(this); p.setOrientation(LinearLayout.VERTICAL); p.setBackgroundColor(Color.parseColor("#0A0A0A")); p.setPadding(20, 16, 20, 16);
         LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this); title.setText("◤ NOISE GEN ◢"); title.setTextColor(Color.parseColor("#44AAFF")); title.setTextSize(14); title.setTypeface(Typeface.MONOSPACE); title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
