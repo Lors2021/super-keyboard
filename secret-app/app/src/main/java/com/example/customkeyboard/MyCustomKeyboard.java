@@ -1,5 +1,19 @@
 package com.example.customkeyboard;
 
+import android.widget.Toast;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.net.Uri;
+import android.provider.MediaStore;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.widget.GridView;
+import android.widget.BaseAdapter;
+import android.widget.ImageView;
+import android.widget.ImageButton;
+import android.widget.AdapterView;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.Manifest;
 import android.app.ActivityManager;
 import android.content.ClipData;
@@ -85,6 +99,12 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private LinearLayout mainKeyboardLayout;
     private LinearLayout keyboardKeysLayout;
     private LinearLayout miniKeyboard;
+    private ValueCallback<Uri[]> mFilePathCallback;
+    private LinearLayout settingsPanel;
+    private float kbHeightPercent = 0.60f;
+    private LinearLayout photoPanel;
+    private GridView photoGrid;
+    private boolean photoForWebView = false;
 
     private ScrollView toolsPanel;
     private LinearLayout monitorPanel, noisePanel, networkPanel, wifiPanel, devicePanel,
@@ -180,7 +200,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         contentArea.addView(mainKeyboardLayout, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         int screenH = getResources().getDisplayMetrics().heightPixels;
-        int panelH = (int)(screenH * 0.60);
+        SharedPreferences prefs = getSharedPreferences("kb_prefs", MODE_PRIVATE);
+        kbHeightPercent = prefs.getFloat("height", 0.60f);
+        int panelH = (int)(screenH * kbHeightPercent);
 
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
@@ -189,6 +211,16 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
         webView.setWebViewClient(new WebViewClient());
+                webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                if (mFilePathCallback != null) mFilePathCallback.onReceiveValue(null);
+                mFilePathCallback = filePathCallback;
+                photoForWebView = true;
+                openPhotoGallery();
+                return true;
+            }
+        });
         webView.setBackgroundColor(Color.WHITE);
         webView.setVisibility(View.GONE);
         contentArea.addView(webView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, panelH));
@@ -196,6 +228,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         toolsPanel = buildToolsPanel();
         toolsPanel.setVisibility(View.GONE);
         contentArea.addView(toolsPanel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, panelH));
+        settingsPanel = buildSettingsPanel();
+        settingsPanel.setVisibility(View.GONE);
+        contentArea.addView(settingsPanel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, panelH));
 
         monitorPanel = buildMonitorPanel();
         monitorPanel.setVisibility(View.GONE);
@@ -283,6 +318,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         p.addView(makeToolTile("💻  МОРЗЕ", "Мигание фонариком", "#00FFFF", v -> openMorse()));
         p.addView(makeToolTile("🎵  МУЗЫКА", "Плеер + визуализатор", "#FF00FF", v -> openMusic()));
         p.addView(makeToolTile("🚀  SPEED TEST", "Скорость интернета", "#00FF00", v -> openSpeedTest()));
+        p.addView(makeToolTile("🛠  НАСТРОЙКИ КЛАВЫ", "Размер клавиатуры", "#FFFFFF", v -> openSettings()));
         p.addView(makeToolTile("⚙️  НАСТРОЙКИ", "Системные настройки", "#AAAAAA", v -> {
             try { startActivity(new android.content.Intent(Settings.ACTION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (Exception e) {}
         }));
@@ -302,6 +338,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return tile;
     }
 
+    private void openSettings() { hideAll(); settingsPanel.setVisibility(View.VISIBLE); }
     private void openTools() { hideAll(); toolsPanel.setVisibility(View.VISIBLE); }
 
     private LinearLayout buildScrollPanel(String titleText, String color, View.OnClickListener back) {
@@ -639,12 +676,19 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) musicStatus.setText("Дай разрешение на микрофон для визуализатора!");
     }
 
-    private void loadMusicFiles() {
-        musicFiles.clear(); File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC);
-        if (dir.exists()) { File[] files = dir.listFiles((d, name) -> name.endsWith(".mp3") || name.endsWith(".wav")); if (files != null) for (File f : files) musicFiles.add(f); }
-        if (musicFiles.isEmpty()) musicStatus.setText("Нет музыки в папке Music");
+       private void loadMusicFiles() {
+        musicFiles.clear();
+        String[] projection = {MediaStore.Audio.Media.DATA};
+        Cursor cursor = getContentResolver().query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, projection, null, null, MediaStore.Audio.Media.TITLE + " ASC");
+        if (cursor != null) {
+            int col = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
+            while (cursor.moveToNext()) {
+                musicFiles.add(new File(cursor.getString(col)));
+            }
+            cursor.close();
+        }
+        if (musicFiles.isEmpty()) musicStatus.setText("Нет музыки на телефоне");
     }
-
     private void togglePlayMusic() {
         if (mediaPlayer != null && mediaPlayer.isPlaying()) { mediaPlayer.pause(); musicStatus.setText("Пауза"); }
         else if (mediaPlayer != null) { mediaPlayer.start(); musicStatus.setText("Играет"); }
@@ -943,7 +987,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         webView.setVisibility(View.GONE); toolsPanel.setVisibility(View.GONE); monitorPanel.setVisibility(View.GONE); noisePanel.setVisibility(View.GONE);
         networkPanel.setVisibility(View.GONE); wifiPanel.setVisibility(View.GONE); devicePanel.setVisibility(View.GONE); cryptoPanel.setVisibility(View.GONE);
         flashlightPanel.setVisibility(View.GONE); gpsPanel.setVisibility(View.GONE); cameraPanel.setVisibility(View.GONE); morsePanel.setVisibility(View.GONE);
-        musicPanel.setVisibility(View.GONE); speedTestPanel.setVisibility(View.GONE); miniKeyboard.setVisibility(View.GONE); mainKeyboardLayout.setVisibility(View.GONE);
+        musicPanel.setVisibility(View.GONE); speedTestPanel.setVisibility(View.GONE); settingsPanel.setVisibility(View.GONE); // <--- добавил настройки
+        if (photoPanel != null) photoPanel.setVisibility(View.GONE); // <--- ДОБАВИТЬ ВОТ ЭТУ СТРОЧКУ
+        miniKeyboard.setVisibility(View.GONE); mainKeyboardLayout.setVisibility(View.GONE);
         stopGps(); stopCamera(); stopNoise();
     }
 
@@ -1040,6 +1086,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             LinearLayout r2 = new LinearLayout(this); r2.setGravity(Gravity.CENTER_HORIZONTAL); for (String k : sym2) addKeyButton(r2, k, v -> typeText(k), 1f, "#2A2A2A"); keyboardKeysLayout.addView(r2, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 110));
             LinearLayout r3 = new LinearLayout(this); r3.setGravity(Gravity.CENTER_HORIZONTAL); for (String k : sym3) addKeyButton(r3, k, v -> typeText(k), 1f, "#2A2A2A"); keyboardKeysLayout.addView(r3, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 110));
             LinearLayout r4 = new LinearLayout(this); r4.setGravity(Gravity.CENTER_HORIZONTAL);
+            addKeyButton(r4, "🖼️", v -> { photoForWebView = false; openPhotoGallery(); }, 1f, "#333333");
             addKeyButton(r4, "АБВ", v -> { symbolsMode = false; buildKeyboard(); }, 1.5f, "#1A1A1A"); addKeyButton(r4, "←", v -> sendArrow(KeyEvent.KEYCODE_DPAD_LEFT), 1f, "#252525");
             addKeyButton(r4, "ПРОБЕЛ", v -> typeText(" "), 3f, "#2A2A2A"); addKeyButton(r4, "→", v -> sendArrow(KeyEvent.KEYCODE_DPAD_RIGHT), 1f, "#252525");
             addKeyButton(r4, "⌫", v -> { InputConnection ic = getCurrentInputConnection(); if (ic != null) ic.deleteSurroundingText(1, 0); }, 1.5f, "#4A2525");
