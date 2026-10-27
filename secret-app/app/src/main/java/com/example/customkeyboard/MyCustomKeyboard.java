@@ -1,5 +1,7 @@
 package com.example.customkeyboard;
 
+import 
+import android.widget.ListView
 import android.widget.Toast;
 import android.content.SharedPreferences;
 import android.database.Cursor;
@@ -94,6 +96,7 @@ import java.util.concurrent.Executors;
 
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
+    private ListView musicListView;
     private WebView webView;
     private FrameLayout keyboardContainer;
     private LinearLayout mainKeyboardLayout;
@@ -656,13 +659,39 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         return white;
     }
 
-    private LinearLayout buildMusicPanel() {
+       private LinearLayout buildMusicPanel() {
         LinearLayout p = new LinearLayout(this); p.setOrientation(LinearLayout.VERTICAL); p.setBackgroundColor(Color.parseColor("#0A0A0A")); p.setPadding(20, 16, 20, 16);
         LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this); title.setText("◤ MUSIC PLAYER ◢"); title.setTextColor(Color.parseColor("#FF00FF")); title.setTextSize(14); title.setTypeface(Typeface.MONOSPACE); title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         top.addView(title); top.addView(makeSmallBtn("←", "#FF00FF", v -> openTools())); p.addView(top);
-        visualizerView = new VisualizerView(this); p.addView(visualizerView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        musicStatus = new TextView(this); musicStatus.setText("Нажми Play (папка Music)"); musicStatus.setTextColor(Color.parseColor("#AAAAAA")); musicStatus.setGravity(Gravity.CENTER); musicStatus.setPadding(0, 10, 0, 10); p.addView(musicStatus);
+        
+        // Визуализатор
+        visualizerView = new VisualizerView(this); 
+        p.addView(visualizerView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 200));
+        
+        musicStatus = new TextView(this); musicStatus.setText("Нажми Play для загрузки"); musicStatus.setTextColor(Color.parseColor("#AAAAAA")); musicStatus.setGravity(Gravity.CENTER); musicStatus.setPadding(0, 10, 0, 10); p.addView(musicStatus);
+        
+        // СПИСОК ТРЕКОВ
+        ListView trackList = new ListView(this);
+        trackList.setBackgroundColor(Color.parseColor("#151515"));
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        listParams.setMargins(0, 10, 0, 10);
+        trackList.setLayoutParams(listParams);
+        trackList.setOnItemClickListener((parent, view, position, id) -> {
+            currentTrack = position;
+            playTrack(0); // Играем выбранный трек
+        });
+        p.addView(trackList);
+
+        // Нужно обновить адаптер, когда музыка загрузится. Сделаем это при запуске.
+        this.musicListView = trackList;
+        if (!musicFiles.isEmpty()) {
+            updateMusicList();
+        } else {
+            loadMusicFiles(); // Загружаем сразу при открытии
+            updateMusicList();
+        }
+
         LinearLayout controls = new LinearLayout(this); controls.setOrientation(LinearLayout.HORIZONTAL); controls.setGravity(Gravity.CENTER);
         Button prevBtn = new Button(this); prevBtn.setText("⏮"); prevBtn.setTextSize(24); prevBtn.setOnClickListener(v -> playTrack(-1)); controls.addView(prevBtn);
         Button playBtn = new Button(this); playBtn.setText("▶"); playBtn.setTextSize(24); playBtn.setOnClickListener(v -> togglePlayMusic()); controls.addView(playBtn);
@@ -688,6 +717,16 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             cursor.close();
         }
         if (musicFiles.isEmpty()) musicStatus.setText("Нет музыки на телефоне");
+        updateMusicList();
+    }
+        private void updateMusicList() {
+        if (musicListView == null) return;
+        String[] names = new String[musicFiles.size()];
+        for (int i = 0; i < musicFiles.size(); i++) {
+            names[i] = musicFiles.get(i).getName();
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, names);
+        musicListView.setAdapter(adapter);
     }
     private void togglePlayMusic() {
         if (mediaPlayer != null && mediaPlayer.isPlaying()) { mediaPlayer.pause(); musicStatus.setText("Пауза"); }
@@ -1164,7 +1203,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             return iv;
         }
     }
-        private LinearLayout buildSettingsPanel() {
+           private LinearLayout buildSettingsPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL); p.setBackgroundColor(Color.parseColor("#0A0A0A")); p.setPadding(20, 16, 20, 16);
         LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
@@ -1173,13 +1212,38 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         top.addView(title); top.addView(makeSmallBtn("←", "#FFFFFF", v -> openTools())); p.addView(top);
 
         TextView lbl = new TextView(this); lbl.setText("Высота клавиатуры: " + (int)(kbHeightPercent * 100) + "%"); lbl.setTextColor(Color.WHITE); lbl.setTextSize(14); lbl.setPadding(0, 24, 0, 12); p.addView(lbl);
+        
         SeekBar sb = new SeekBar(this);
-        sb.setMax(45); // от 40 до 85
+        sb.setMax(45); 
         sb.setProgress((int)(kbHeightPercent * 100) - 40);
         sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar s, int v, boolean f) {
                 lbl.setText("Высота клавиатуры: " + (v + 40) + "%");
             }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {
+                kbHeightPercent = (s.getProgress() + 40) / 100f;
+                getSharedPreferences("kb_prefs", MODE_PRIVATE).edit().putFloat("height", kbHeightPercent).apply();
+            }
+        });
+        p.addView(sb);
+
+        Button applyBtn = new Button(this);
+        applyBtn.setText("ПРИМЕНИТЬ РАЗМЕР");
+        applyBtn.setTextColor(Color.WHITE);
+        applyBtn.setBackgroundColor(Color.parseColor("#44DD88"));
+        applyBtn.setOnClickListener(v -> {
+            // Принудительно пересобираем клавиатуру
+            setInputView(onCreateInputView()); 
+            Toast.makeText(MyCustomKeyboard.this, "Размер применен", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 100);
+        applyParams.setMargins(0, 24, 0, 0);
+        applyBtn.setLayoutParams(applyParams);
+        p.addView(applyBtn);
+
+        return p;
+    }
             public void onStartTrackingTouch(SeekBar s) {}
             public void onStopTrackingTouch(SeekBar s) {
                 kbHeightPercent = (s.getProgress() + 40) / 100f;
