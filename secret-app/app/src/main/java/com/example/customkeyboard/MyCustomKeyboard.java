@@ -1,7 +1,7 @@
 package com.example.customkeyboard;
 
-import 
-import android.widget.ListView
+import android.widget.ListView;
+import android.widget.ArrayAdapter;
 import android.widget.Toast;
 import android.content.SharedPreferences;
 import android.database.Cursor;
@@ -1244,16 +1244,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         return p;
     }
-            public void onStartTrackingTouch(SeekBar s) {}
-            public void onStopTrackingTouch(SeekBar s) {
-                kbHeightPercent = (s.getProgress() + 40) / 100f;
-                getSharedPreferences("kb_prefs", MODE_PRIVATE).edit().putFloat("height", kbHeightPercent).apply();
-                Toast.makeText(MyCustomKeyboard.this, "Перезапусти клавиатуру для применения", Toast.LENGTH_SHORT).show();
-            }
-        });
-        p.addView(sb);
-        return p;
-    }
+
     private void buildKeyboard() {
         if (keyboardKeysLayout == null) return; keyboardKeysLayout.removeAllViews();
         if (symbolsMode) {
