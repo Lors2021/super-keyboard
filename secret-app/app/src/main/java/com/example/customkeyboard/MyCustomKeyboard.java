@@ -1078,6 +1078,118 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     private String jsString(String s) { return "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"; }
 
+       private void openPhotoGallery() {
+        hideAll();
+        if (photoPanel == null) {
+            photoPanel = new LinearLayout(this);
+            photoPanel.setOrientation(LinearLayout.VERTICAL);
+            photoPanel.setBackgroundColor(Color.parseColor("#0A0A0A"));
+            
+            LinearLayout top = new LinearLayout(this);
+            top.setOrientation(LinearLayout.HORIZONTAL);
+            top.setGravity(Gravity.CENTER_VERTICAL);
+            TextView title = new TextView(this);
+            title.setText("◤ ВЫБЕРИ ФОТО ◢");
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(14);
+            title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            top.addView(title);
+
+            Button closeBtn = new Button(this);
+            closeBtn.setText("✕");
+            closeBtn.setTextColor(Color.RED);
+            closeBtn.setOnClickListener(v -> {
+                photoPanel.setVisibility(View.GONE);
+                if (mFilePathCallback != null) { mFilePathCallback.onReceiveValue(null); mFilePathCallback = null; }
+                mainKeyboardLayout.setVisibility(View.VISIBLE);
+            });
+            top.addView(closeBtn);
+            photoPanel.addView(top);
+
+            photoGrid = new GridView(this);
+            photoGrid.setNumColumns(3);
+            photoGrid.setHorizontalSpacing(4);
+            photoGrid.setVerticalSpacing(4);
+            photoGrid.setPadding(4, 4, 4, 4);
+            photoGrid.setAdapter(new PhotoAdapter());
+            photoGrid.setOnItemClickListener((parent, view, position, id) -> {
+                String path = ((String) view.getTag());
+                File file = new File(path);
+                Uri uri = Uri.fromFile(file);
+                if (mFilePathCallback != null) {
+                    mFilePathCallback.onReceiveValue(new Uri[]{uri});
+                    mFilePathCallback = null;
+                }
+                photoPanel.setVisibility(View.GONE);
+                if (photoForWebView) {
+                    webView.setVisibility(View.VISIBLE);
+                    miniKeyboard.setVisibility(View.VISIBLE);
+                } else {
+                    mainKeyboardLayout.setVisibility(View.VISIBLE);
+                }
+            });
+            photoPanel.addView(photoGrid, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            
+            keyboardContainer.addView(photoPanel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        photoPanel.setVisibility(View.VISIBLE);
+        photoGrid.invalidateViews();
+    } 
+        private class PhotoAdapter extends BaseAdapter {
+        private List<String> paths = new ArrayList<>();
+        public PhotoAdapter() {
+            String[] projection = {MediaStore.Images.Media.DATA};
+            Cursor cursor = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, null, null, MediaStore.Images.Media.DATE_ADDED + " DESC");
+            if (cursor != null) {
+                int col = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                while (cursor.moveToNext()) {
+                    paths.add(cursor.getString(col));
+                }
+                cursor.close();
+            }
+        }
+        @Override public int getCount() { return paths.size(); }
+        @Override public Object getItem(int i) { return paths.get(i); }
+        @Override public long getItemId(int i) { return i; }
+        @Override public View getView(int i, View view, ViewGroup viewGroup) {
+            ImageView iv = new ImageView(MyCustomKeyboard.this);
+            iv.setLayoutParams(new GridView.LayoutParams(300, 300));
+            iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            String path = paths.get(i);
+            iv.setTag(path);
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 4;
+            Bitmap bmp = BitmapFactory.decodeFile(path, opts);
+            iv.setImageBitmap(bmp);
+            return iv;
+        }
+    }
+        private LinearLayout buildSettingsPanel() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL); p.setBackgroundColor(Color.parseColor("#0A0A0A")); p.setPadding(20, 16, 20, 16);
+        LinearLayout top = new LinearLayout(this); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this); title.setText("◤ НАСТРОЙКИ ◢"); title.setTextColor(Color.WHITE); title.setTextSize(14); title.setTypeface(Typeface.MONOSPACE);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(title); top.addView(makeSmallBtn("←", "#FFFFFF", v -> openTools())); p.addView(top);
+
+        TextView lbl = new TextView(this); lbl.setText("Высота клавиатуры: " + (int)(kbHeightPercent * 100) + "%"); lbl.setTextColor(Color.WHITE); lbl.setTextSize(14); lbl.setPadding(0, 24, 0, 12); p.addView(lbl);
+        SeekBar sb = new SeekBar(this);
+        sb.setMax(45); // от 40 до 85
+        sb.setProgress((int)(kbHeightPercent * 100) - 40);
+        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int v, boolean f) {
+                lbl.setText("Высота клавиатуры: " + (v + 40) + "%");
+            }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {
+                kbHeightPercent = (s.getProgress() + 40) / 100f;
+                getSharedPreferences("kb_prefs", MODE_PRIVATE).edit().putFloat("height", kbHeightPercent).apply();
+                Toast.makeText(MyCustomKeyboard.this, "Перезапусти клавиатуру для применения", Toast.LENGTH_SHORT).show();
+            }
+        });
+        p.addView(sb);
+        return p;
+    }
     private void buildKeyboard() {
         if (keyboardKeysLayout == null) return; keyboardKeysLayout.removeAllViews();
         if (symbolsMode) {
