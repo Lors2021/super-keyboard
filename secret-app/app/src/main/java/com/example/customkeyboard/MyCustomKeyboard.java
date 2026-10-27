@@ -96,6 +96,10 @@ import java.util.concurrent.Executors;
 
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
+    private LinearLayout notificationPanel;
+    private TextView alertBanner;
+    private int lastUnreadCount = 0;
+    private TextView notificationText;
     private ListView musicListView;
     private WebView webView;
     private FrameLayout keyboardContainer;
@@ -213,7 +217,43 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         settings.setDomStorageEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
-        webView.setWebViewClient(new WebViewClient());
+                       webView.setWebViewClient(new WebViewClient() {
+            // Уведомления
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (url.contains("telegram.org")) {
+                    view.evaluateJavascript(
+                        "setInterval(function() {" +
+                        "  var title = document.title;" +
+                        "  var match = title.match(/^\\((\\d+)\\)/);" +
+                        "  if (match) {" +
+                        "    var count = match[1];" +
+                        "    if (window.lastCount !== count) {" +
+                        "      window.lastCount = count;" +
+                        "      AndroidBridge.onNewMessage('Telegram Web', count);" +
+                        "    }" +
+                        "  } else {" +
+                        "    window.lastCount = '0';" +
+                        "  }" +
+                        "}, 3000);", null
+                    );
+                }
+            }
+
+            // AdBlock (находится ВНУТРИ того же класса WebViewClient)
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                if (url.contains("doubleclick.net") || url.contains("googleads") || 
+                    url.contains("googlesyndication") || url.contains("adservice") || 
+                    url.contains("banner") || url.contains("ad.") || 
+                    url.contains("analytics") || url.contains("facebook.com/tr")) {
+                    return new android.webkit.WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream("".getBytes()));
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+        }); // <--- ЗДЕСЬ ЗАКРЫВАЕТСЯ КЛАСС (и ставится точка с запятой)
                 webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
@@ -224,6 +264,20 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
                 return true;
             }
         });
+                // Включаем JavaScript мост
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.addJavascriptInterface(new WebAppInterface(this), "AndroidBridge");
+
+        // Создаем красную плашку для уведомлений
+        alertBanner = new TextView(this);
+        alertBanner.setTextColor(Color.WHITE);
+        alertBanner.setBackgroundColor(Color.RED);
+        alertBanner.setTextSize(14);
+        alertBanner.setGravity(Gravity.CENTER);
+        alertBanner.setPadding(10, 10, 10, 10);
+        alertBanner.setVisibility(View.GONE);
+        FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 80, Gravity.TOP);
+        keyboardContainer.addView(alertBanner, bannerParams);
         webView.setBackgroundColor(Color.WHITE);
         webView.setVisibility(View.GONE);
         contentArea.addView(webView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, panelH));
@@ -289,12 +343,23 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         speedTestPanel.setVisibility(View.GONE);
         contentArea.addView(speedTestPanel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, panelH));
 
+                // Добавляем область контента в корневой лайаут
         rootLayout.addView(contentArea, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // Создаем мини-клавиатуру
         miniKeyboard = buildMiniKeyboard();
         miniKeyboard.setVisibility(View.GONE);
-        rootLayout.addView(miniKeyboard, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // ВАЖНО: добавляем мини-клавиатуру НАПРЯМУЮ в keyboardContainer (а не в rootLayout),
+        // прижимая её к низу (Gravity.BOTTOM). Теперь она будет поверх контента.
+        FrameLayout.LayoutParams miniParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 
+                ViewGroup.LayoutParams.WRAP_CONTENT, 
+                Gravity.BOTTOM
+        );
+        keyboardContainer.addView(miniKeyboard, miniParams);
+
+        // Добавляем основной лайаут в контейнер
         keyboardContainer.addView(rootLayout);
         buildKeyboard();
         return keyboardContainer;
@@ -322,6 +387,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         p.addView(makeToolTile("🎵  МУЗЫКА", "Плеер + визуализатор", "#FF00FF", v -> openMusic()));
         p.addView(makeToolTile("🚀  SPEED TEST", "Скорость интернета", "#00FF00", v -> openSpeedTest()));
         p.addView(makeToolTile("🛠  НАСТРОЙКИ КЛАВЫ", "Размер клавиатуры", "#FFFFFF", v -> openSettings()));
+        p.addView(makeToolTile("🔄  ПОВОРОТ ЭКРАНА", "Открыть настройки экрана", "#FFAA44", v -> rotateScreen()));
         p.addView(makeToolTile("⚙️  НАСТРОЙКИ", "Системные настройки", "#AAAAAA", v -> {
             try { startActivity(new android.content.Intent(Settings.ACTION_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (Exception e) {}
         }));
@@ -343,6 +409,17 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     private void openSettings() { hideAll(); settingsPanel.setVisibility(View.VISIBLE); }
     private void openTools() { hideAll(); toolsPanel.setVisibility(View.VISIBLE); }
+    private void rotateScreen() {
+        try {
+            startActivity(new android.content.Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try {
+                startActivity(new android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e2) {}
+        }
+    }
 
     private LinearLayout buildScrollPanel(String titleText, String color, View.OnClickListener back) {
         LinearLayout wrapper = new LinearLayout(this); wrapper.setOrientation(LinearLayout.VERTICAL); wrapper.setBackgroundColor(Color.parseColor("#0A0A0A")); wrapper.setPadding(14, 14, 14, 14);
@@ -586,6 +663,27 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         switch (s) { case BatteryManager.BATTERY_STATUS_CHARGING: return "CHARGING"; case BatteryManager.BATTERY_STATUS_DISCHARGING: return "DISCHARGING";
             case BatteryManager.BATTERY_STATUS_FULL: return "FULL"; case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return "NOT CHARGING"; }
         return "UNKNOWN";
+    }
+        public class WebAppInterface {
+        Context mContext;
+        WebAppInterface(Context c) { mContext = c; }
+
+        @android.webkit.JavascriptInterface
+        public void onNewMessage(String appName, String count) {
+            monitorHandler.post(() -> {
+                if (alertBanner != null) {
+                    alertBanner.setText("🔔 Новое сообщение в " + appName + " (" + count + ")");
+                    alertBanner.setVisibility(View.VISIBLE);
+                    // Прячем плашку через 5 секунд
+                    monitorHandler.postDelayed(() -> alertBanner.setVisibility(View.GONE), 5000);
+                }
+                // Проигрываем звук
+                try {
+                    ToneGenerator tg = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100);
+                    tg.startTone(ToneGenerator.TONE_PROP_BEEP, 200);
+                } catch (Exception e) {}
+            });
+        }
     }
     
         private LinearLayout buildNoisePanel() {
