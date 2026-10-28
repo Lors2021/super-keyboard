@@ -464,9 +464,15 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             }
             launcherPanel.addView(grid, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             
-            keyboardContainer.addView(launcherPanel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                     FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 
+                    ViewGroup.LayoutParams.MATCH_PARENT, 
+                    Gravity.TOP // <--- ВОТ ЭТО ДОБАВЛЯЕТСЯ
+            );
+            keyboardContainer.addView(launcherPanel, lp);
         }
         launcherPanel.setVisibility(View.VISIBLE);
+        launcherPanel.bringToFront();
     }
     private void rotateScreen() {
         try {
@@ -1177,7 +1183,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private boolean strobeState = false;
     private final Runnable strobeRunnable = new Runnable() { @Override public void run() { if (!strobeOn) return; strobeState = !strobeState; setTorch(strobeState); if (strobeHandler != null) strobeHandler.postDelayed(this, 100); } };
 
-    private void openWeb(String url) { hideAll(); webView.setVisibility(View.VISIBLE); miniKeyboard.setVisibility(View.VISIBLE); webView.loadUrl(url); }
+    private void openWeb(String url) { hideAll(); webView.setVisibility(View.VISIBLE); miniKeyboard.setVisibility(View.VISIBLE); webView.loadUrl(url); miniKeyboard.bringToFront();}
 
     private void hideAll() {
         if (launcherPanel != null) launcherPanel.setVisibility(View.GONE);
