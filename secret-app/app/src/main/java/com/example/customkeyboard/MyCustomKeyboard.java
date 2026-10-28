@@ -1,6 +1,7 @@
 package com.example.customkeyboard;
 
 import android.widget.ListView;
+import android.widget.GridLayout;
 import android.widget.ArrayAdapter;
 import android.widget.Toast;
 import android.content.SharedPreferences;
@@ -97,6 +98,7 @@ import java.util.concurrent.Executors;
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
     private LinearLayout notificationPanel;
+    private LinearLayout launcherPanel;
     private TextView alertBanner;
     private int lastUnreadCount = 0;
     private TextView notificationText;
@@ -189,9 +191,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         menuLayout.setBackgroundColor(Color.parseColor("#151515"));
         menuLayout.setPadding(6, 6, 6, 6);
 
-        addMenuButton(menuLayout, "YouTube", v -> openWeb("https://m.youtube.com"), "#FF5555");
-        addMenuButton(menuLayout, "Telegram", v -> openWeb("https://web.telegram.org"), "#229ED9");
-        addMenuButton(menuLayout, "Google", v -> openWeb("https://www.google.com"), "#FBBC05");
+        addMenuButton(menuLayout, "🏠 HOME", v -> openLauncher(), "#FFFFFF");
+        addMenuButton(menuLayout, "TG", v -> openWeb("https://web.telegram.org"), "#229ED9");
+        addMenuButton(menuLayout, "YT", v -> openWeb("https://m.youtube.com"), "#FF5555");
         addMenuButton(menuLayout, "HACK", v -> openTools(), "#44DD88");
         addMenuButton(menuLayout, "✕", v -> closeAll(), "#FF4444");
 
@@ -409,6 +411,63 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     private void openSettings() { hideAll(); settingsPanel.setVisibility(View.VISIBLE); }
     private void openTools() { hideAll(); toolsPanel.setVisibility(View.VISIBLE); }
+        private void openLauncher() {
+        hideAll();
+        if (launcherPanel == null) {
+            launcherPanel = new LinearLayout(this);
+            launcherPanel.setOrientation(LinearLayout.VERTICAL);
+            launcherPanel.setBackgroundColor(Color.parseColor("#0F0F0F"));
+            launcherPanel.setPadding(20, 20, 20, 20);
+
+            TextView title = new TextView(this);
+            title.setText("◤ МОЯ ОС ◢");
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(18);
+            title.setTypeface(Typeface.MONOSPACE);
+            launcherPanel.addView(title);
+
+            GridLayout grid = new GridLayout(this);
+            grid.setColumnCount(3);
+            grid.setRowCount(4);
+            
+            String[][] apps = {
+                {"YT", "https://m.youtube.com", "#FF5555"},
+                {"TG", "https://web.telegram.org", "#229ED9"},
+                {"Discord", "https://discord.com/app", "#5865F2"},
+                {"Spotify", "https://open.spotify.com", "#1DB954"},
+                {"Twitch", "https://m.twitch.tv", "#9146FF"},
+                {"Reddit", "https://www.reddit.com", "#FF4500"},
+                {"X", "https://x.com", "#FFFFFF"},
+                {"WA", "https://web.whatsapp.com", "#25D366"}
+            };
+
+            for (String[] app : apps) {
+                Button btn = new Button(this);
+                btn.setText(app[0]);
+                btn.setTextColor(Color.parseColor(app[2]));
+                btn.setTextSize(16);
+                btn.setAllCaps(false);
+                GradientDrawable bg = new GradientDrawable();
+                bg.setCornerRadius(16);
+                bg.setColor(Color.parseColor("#1A1A1A"));
+                bg.setStroke(2, Color.parseColor("#333333"));
+                btn.setBackground(bg);
+                btn.setOnClickListener(v -> openWeb(app[1]));
+                
+                GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+                lp.width = 0;
+                lp.height = 180;
+                lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+                lp.setMargins(10, 10, 10, 10);
+                btn.setLayoutParams(lp);
+                grid.addView(btn);
+            }
+            launcherPanel.addView(grid, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            
+            keyboardContainer.addView(launcherPanel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        launcherPanel.setVisibility(View.VISIBLE);
+    }
     private void rotateScreen() {
         try {
             startActivity(new android.content.Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS)
@@ -1121,6 +1180,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private void openWeb(String url) { hideAll(); webView.setVisibility(View.VISIBLE); miniKeyboard.setVisibility(View.VISIBLE); webView.loadUrl(url); }
 
     private void hideAll() {
+        if (launcherPanel != null) launcherPanel.setVisibility(View.GONE);
         webView.setVisibility(View.GONE); toolsPanel.setVisibility(View.GONE); monitorPanel.setVisibility(View.GONE); noisePanel.setVisibility(View.GONE);
         networkPanel.setVisibility(View.GONE); wifiPanel.setVisibility(View.GONE); devicePanel.setVisibility(View.GONE); cryptoPanel.setVisibility(View.GONE);
         flashlightPanel.setVisibility(View.GONE); gpsPanel.setVisibility(View.GONE); cameraPanel.setVisibility(View.GONE); morsePanel.setVisibility(View.GONE);
