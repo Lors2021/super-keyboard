@@ -1171,7 +1171,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     }
 
        private LinearLayout buildMiniKeyboard() {
-        LinearLayout wrapper = new Linea  rLayout(this); wrapper.setOrientation(LinearLayout.VERTICAL); wrapper.setBackgroundColor(Color.parseColor("#151515")); wrapper.setPadding(4, 4, 4, 6);
+        LinearLayout wrapper = new LinearLayout(this); wrapper.setOrientation(LinearLayout.VERTICAL); wrapper.setBackgroundColor(Color.parseColor("#151515")); wrapper.setPadding(4, 4, 4, 6);
         LinearLayout header = new LinearLayout(this); header.setOrientation(LinearLayout.HORIZONTAL); header.setGravity(Gravity.CENTER_VERTICAL);
         
         Button hideBtn = new Button(this); hideBtn.setText("⌄"); hideBtn.setTextColor(Color.WHITE); hideBtn.setTextSize(16); hideBtn.setPadding(0, 0, 0, 0); hideBtn.setAllCaps(false);
