@@ -98,7 +98,7 @@ import java.util.concurrent.Executors;
 public class MyCustomKeyboard extends InputMethodService implements KeyboardView.OnKeyboardActionListener {
 
     private LinearLayout notificationPanel;
-    private LinearLayout launcherPanel;
+    private Button floatKbBtn;
     private TextView alertBanner;
     private int lastUnreadCount = 0;
     private TextView notificationText;
@@ -191,9 +191,9 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         menuLayout.setBackgroundColor(Color.parseColor("#151515"));
         menuLayout.setPadding(6, 6, 6, 6);
 
-        addMenuButton(menuLayout, "🏠 HOME", v -> openLauncher(), "#FFFFFF");
-        addMenuButton(menuLayout, "TG", v -> openWeb("https://web.telegram.org"), "#229ED9");
-        addMenuButton(menuLayout, "YT", v -> openWeb("https://m.youtube.com"), "#FF5555");
+       addMenuButton(menuLayout, "YouTube", v -> openWeb("https://m.youtube.com"), "#FF5555");
+        addMenuButton(menuLayout, "Telegram", v -> openWeb("https://web.telegram.org"), "#229ED9");
+        addMenuButton(menuLayout, "Google", v -> openWeb("https://www.google.com"), "#FBBC05");
         addMenuButton(menuLayout, "HACK", v -> openTools(), "#44DD88");
         addMenuButton(menuLayout, "✕", v -> closeAll(), "#FF4444");
 
@@ -363,7 +363,29 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
         // Добавляем основной лайаут в контейнер
         keyboardContainer.addView(rootLayout);
-        buildKeyboard();
+    
+        // Плавающая кнопка для возврата мини-клавиатуры
+        floatKbBtn = new Button(this);
+        floatKbBtn.setText("⌨");
+        floatKbBtn.setTextColor(Color.WHITE);
+        floatKbBtn.setTextSize(24);
+        floatKbBtn.setGravity(Gravity.CENTER);
+        GradientDrawable fbg = new GradientDrawable();
+        fbg.setShape(GradientDrawable.OVAL);
+        fbg.setColor(Color.parseColor("#CC222222"));
+        fbg.setStroke(2, Color.parseColor("#555555"));
+        floatKbBtn.setBackground(fbg);
+        floatKbBtn.setVisibility(View.GONE);
+        floatKbBtn.setOnClickListener(v -> {
+            floatKbBtn.setVisibility(View.GONE);
+            miniKeyboard.setVisibility(View.VISIBLE);
+            miniKeyboard.bringToFront();
+        });
+        
+        FrameLayout.LayoutParams floatParams = new FrameLayout.LayoutParams(120, 120, Gravity.BOTTOM | Gravity.RIGHT);
+        floatParams.setMargins(0, 0, 20, 20);
+        keyboardContainer.addView(floatKbBtn, floatParams);
+            buildKeyboard();
         return keyboardContainer;
     }
 
@@ -411,69 +433,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     private void openSettings() { hideAll(); settingsPanel.setVisibility(View.VISIBLE); }
     private void openTools() { hideAll(); toolsPanel.setVisibility(View.VISIBLE); }
-        private void openLauncher() {
-        hideAll();
-        if (launcherPanel == null) {
-            launcherPanel = new LinearLayout(this);
-            launcherPanel.setOrientation(LinearLayout.VERTICAL);
-            launcherPanel.setBackgroundColor(Color.parseColor("#0F0F0F"));
-            launcherPanel.setPadding(20, 20, 20, 20);
-
-            TextView title = new TextView(this);
-            title.setText("◤ МОЯ ОС ◢");
-            title.setTextColor(Color.WHITE);
-            title.setTextSize(18);
-            title.setTypeface(Typeface.MONOSPACE);
-            launcherPanel.addView(title);
-
-            GridLayout grid = new GridLayout(this);
-            grid.setColumnCount(3);
-            grid.setRowCount(4);
-            
-            String[][] apps = {
-                {"YT", "https://m.youtube.com", "#FF5555"},
-                {"TG", "https://web.telegram.org", "#229ED9"},
-                {"Discord", "https://discord.com/app", "#5865F2"},
-                {"Spotify", "https://open.spotify.com", "#1DB954"},
-                {"Twitch", "https://m.twitch.tv", "#9146FF"},
-                {"Reddit", "https://www.reddit.com", "#FF4500"},
-                {"X", "https://x.com", "#FFFFFF"},
-                {"WA", "https://web.whatsapp.com", "#25D366"}
-            };
-
-            for (String[] app : apps) {
-                Button btn = new Button(this);
-                btn.setText(app[0]);
-                btn.setTextColor(Color.parseColor(app[2]));
-                btn.setTextSize(16);
-                btn.setAllCaps(false);
-                GradientDrawable bg = new GradientDrawable();
-                bg.setCornerRadius(16);
-                bg.setColor(Color.parseColor("#1A1A1A"));
-                bg.setStroke(2, Color.parseColor("#333333"));
-                btn.setBackground(bg);
-                btn.setOnClickListener(v -> openWeb(app[1]));
-                
-                GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
-                lp.width = 0;
-                lp.height = 180;
-                lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-                lp.setMargins(10, 10, 10, 10);
-                btn.setLayoutParams(lp);
-                grid.addView(btn);
-            }
-            launcherPanel.addView(grid, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            
-                     FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, 
-                    ViewGroup.LayoutParams.MATCH_PARENT, 
-                    Gravity.TOP // <--- ВОТ ЭТО ДОБАВЛЯЕТСЯ
-            );
-            keyboardContainer.addView(launcherPanel, lp);
-        }
-        launcherPanel.setVisibility(View.VISIBLE);
-        launcherPanel.bringToFront();
-    }
+      
     private void rotateScreen() {
         try {
             startActivity(new android.content.Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS)
@@ -1186,7 +1146,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
     private void openWeb(String url) { hideAll(); webView.setVisibility(View.VISIBLE); miniKeyboard.setVisibility(View.VISIBLE); webView.loadUrl(url); miniKeyboard.bringToFront();}
 
     private void hideAll() {
-        if (launcherPanel != null) launcherPanel.setVisibility(View.GONE);
         webView.setVisibility(View.GONE); toolsPanel.setVisibility(View.GONE); monitorPanel.setVisibility(View.GONE); noisePanel.setVisibility(View.GONE);
         networkPanel.setVisibility(View.GONE); wifiPanel.setVisibility(View.GONE); devicePanel.setVisibility(View.GONE); cryptoPanel.setVisibility(View.GONE);
         flashlightPanel.setVisibility(View.GONE); gpsPanel.setVisibility(View.GONE); cameraPanel.setVisibility(View.GONE); morsePanel.setVisibility(View.GONE);
@@ -1198,7 +1157,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
 
     private void closeAll() {
         hideAll(); mainKeyboardLayout.setVisibility(View.VISIBLE);
-        if (webView != null) { webView.stopLoading(); webView.loadUrl("about:blank"); }
+      if (webView != null) { webView.stopLoading(); webView.loadUrl("about:blank"); }
         if (mediaPlayer != null) { try { mediaPlayer.stop(); mediaPlayer.release(); } catch (Exception e) {} mediaPlayer = null; }
         if (visualizer != null) { try { visualizer.release(); } catch (Exception e) {} visualizer = null; }
     }
@@ -1211,9 +1170,10 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         super.onDestroy();
     }
 
-    private LinearLayout buildMiniKeyboard() {
-        LinearLayout wrapper = new LinearLayout(this); wrapper.setOrientation(LinearLayout.VERTICAL); wrapper.setBackgroundColor(Color.parseColor("#151515")); wrapper.setPadding(4, 4, 4, 6);
+       private LinearLayout buildMiniKeyboard() {
+        LinearLayout wrapper = new Linea  rLayout(this); wrapper.setOrientation(LinearLayout.VERTICAL); wrapper.setBackgroundColor(Color.parseColor("#151515")); wrapper.setPadding(4, 4, 4, 6);
         LinearLayout header = new LinearLayout(this); header.setOrientation(LinearLayout.HORIZONTAL); header.setGravity(Gravity.CENTER_VERTICAL);
+        
         Button hideBtn = new Button(this); hideBtn.setText("⌄"); hideBtn.setTextColor(Color.WHITE); hideBtn.setTextSize(16); hideBtn.setPadding(0, 0, 0, 0); hideBtn.setAllCaps(false);
         GradientDrawable hs = new GradientDrawable(); hs.setCornerRadius(10); hs.setColor(Color.parseColor("#252525")); hideBtn.setBackground(hs);
         hideBtn.setOnClickListener(v -> {
@@ -1221,10 +1181,21 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
             for (int i = 1; i < miniKeyboard.getChildCount(); i++) miniKeyboard.getChildAt(i).setVisibility(vis); hideBtn.setText(vis == View.VISIBLE ? "⌄" : "⌃");
         });
         LinearLayout.LayoutParams hb = new LinearLayout.LayoutParams(70, 52); hb.setMargins(4, 2, 4, 2); hideBtn.setLayoutParams(hb); header.addView(hideBtn);
+        
         Button backBtn = new Button(this); backBtn.setText("◁ Назад"); backBtn.setTextColor(Color.WHITE); backBtn.setTextSize(12); backBtn.setAllCaps(false); backBtn.setBackground(hs);
         backBtn.setOnClickListener(v -> { if (webView.canGoBack()) webView.goBack(); }); LinearLayout.LayoutParams bb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 52); bb.setMargins(4, 2, 4, 2); backBtn.setLayoutParams(bb); header.addView(backBtn);
+        
         Button clearBtn = new Button(this); clearBtn.setText("Очистить"); clearBtn.setTextColor(Color.parseColor("#FF9999")); clearBtn.setTextSize(12); clearBtn.setAllCaps(false); clearBtn.setBackground(hs);
         clearBtn.setOnClickListener(v -> clearActiveField()); LinearLayout.LayoutParams cb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 52); cb.setMargins(4, 2, 4, 2); clearBtn.setLayoutParams(cb); header.addView(clearBtn);
+
+        // --- НОВАЯ КНОПКА ЗАКРЫТИЯ ---
+        Button closeBtn = new Button(this); closeBtn.setText("✕"); closeBtn.setTextColor(Color.RED); closeBtn.setTextSize(16); closeBtn.setAllCaps(false); closeBtn.setBackground(hs);
+        closeBtn.setOnClickListener(v -> {
+            miniKeyboard.setVisibility(View.GONE);
+            floatKbBtn.setVisibility(View.VISIBLE);
+        });
+        LinearLayout.LayoutParams closeB = new LinearLayout.LayoutParams(70, 52); closeB.setMargins(4, 2, 4, 2); closeBtn.setLayoutParams(closeB); header.addView(closeBtn);
+        
         wrapper.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 56));
 
         String[][] rows;
@@ -1233,6 +1204,7 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         else { rows = new String[][]{ {"1","2","3","4","5","6","7","8","9","0"}, {"q","w","e","r","t","y","u","i","o","p"}, {"a","s","d","f","g","h","j","k","l"}, {"z","x","c","v","b","n","m","@","."} }; }
 
         for (String[] row : rows) { LinearLayout r = new LinearLayout(this); r.setOrientation(LinearLayout.HORIZONTAL); r.setGravity(Gravity.CENTER); for (String k : row) r.addView(makeMiniKey(k, 1f, () -> onMiniKey(k))); wrapper.addView(r, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 66)); }
+        
         LinearLayout bottomRow = new LinearLayout(this); bottomRow.setOrientation(LinearLayout.HORIZONTAL); bottomRow.setGravity(Gravity.CENTER);
         if (!miniSymbolsMode) { bottomRow.addView(makeMiniKey(miniRussian ? "РУС" : "ENG", 1.2f, () -> { miniRussian = !miniRussian; if (miniKeyboard == null) return; miniKeyboard.removeAllViews(); LinearLayout rebuilt = buildMiniKeyboard(); while (rebuilt.getChildCount() > 0) { View c = rebuilt.getChildAt(0); rebuilt.removeViewAt(0); miniKeyboard.addView(c); } })); }
         bottomRow.addView(makeMiniKey(miniSymbolsMode ? "АБВ" : "123", 1.2f, () -> { miniSymbolsMode = !miniSymbolsMode; if (miniKeyboard == null) return; miniKeyboard.removeAllViews(); LinearLayout rebuilt = buildMiniKeyboard(); while (rebuilt.getChildCount() > 0) { View c = rebuilt.getChildAt(0); rebuilt.removeViewAt(0); miniKeyboard.addView(c); } }));
@@ -1244,7 +1216,6 @@ public class MyCustomKeyboard extends InputMethodService implements KeyboardView
         wrapper.addView(bottomRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 66));
         return wrapper;
     }
-
     private Button makeMiniKey(String text, float weight, Runnable onClick) {
         Button b = new Button(this); b.setText(text); b.setTextSize(16); b.setTextColor(Color.WHITE); b.setPadding(0, 0, 0, 0); b.setAllCaps(false); b.setGravity(Gravity.CENTER);
         GradientDrawable shape = new GradientDrawable(); shape.setCornerRadius(12); shape.setColor(Color.parseColor("#2A2A2A")); b.setBackground(shape);
